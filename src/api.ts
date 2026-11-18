@@ -19,7 +19,11 @@ export const api = {
   async checkHealth(): Promise<boolean> {
     try {
       const res = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(3000) });
-      return res.ok;
+      if (!res.ok) return false;
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) return false;
+      const data = await res.json();
+      return data?.status === 'ok';
     } catch {
       return false;
     }
@@ -39,6 +43,8 @@ export const api = {
         ]);
 
       if (!menuRes.ok) return null;
+      const ct = menuRes.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) return null;
 
       const menu = await menuRes.json();
       const orders = await ordersRes.json();

@@ -723,9 +723,9 @@ function Login() {
           <div className="field"><label htmlFor="pw">Password</label><input id="pw" className="in" type="password" value={pw} onChange={e => setPw(e.target.value)} autoComplete="current-password" /></div>
           {err && <div className="alert bad" role="alert"><Icon n="alert" />{err}</div>}
           <button className="btn primary wide" type="submit">Open {role === 'user' ? 'restaurant' : 'admin'} panel</button>
-          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: '0.8rem', color: S.dbConnected ? '#10b981' : '#f59e0b' }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: S.dbConnected ? '#10b981' : '#f59e0b' }} />
-            {S.dbConnected ? 'Database: MSSQL (DineDeskDB Connected)' : 'Database: Connecting to MSSQL...'}
+          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: '0.8rem', color: S.dbConnected ? '#10b981' : '#94a3b8' }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: S.dbConnected ? '#10b981' : '#64748b' }} />
+            {S.dbConnected ? 'Database: MSSQL (DineDeskDB Connected)' : 'Database: Local Storage (Vercel / Cloud Ready)'}
           </div>
           <p className="fine">{role === 'user' ? 'For restaurant owners, managers and cashiers.' : 'For the software team: tenants, support tickets, releases and maintenance.'}</p>
         </form>
@@ -776,7 +776,7 @@ function Shell({ admin, nav, view, setView, title, sub, children }: {
             <span className="muted">{sub}</span>
           </div>
           <div className="top-actions">
-            <Pill tone={S.dbConnected ? 'good' : 'warn'}>{S.dbConnected ? 'MSSQL DB' : 'Local DB'}</Pill>
+            <Pill tone={S.dbConnected ? 'good' : 'info'}>{S.dbConnected ? 'MSSQL DB' : 'Local DB'}</Pill>
             <Pill tone={online ? 'good' : 'warn'}>{online ? 'Online' : 'Offline'}</Pill>
             <button className="btn ghost sm" onClick={switchPanel} title={admin ? 'Restaurant panel' : 'Admin panel'}>
               <Icon n="swap" s={14} />
