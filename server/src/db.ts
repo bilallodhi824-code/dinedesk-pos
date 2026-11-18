@@ -1,6 +1,15 @@
-import sql from 'mssql/msnodesqlv8';
+import sql from 'mssql';
 import dotenv from 'dotenv';
 import path from 'path';
+
+let sqlDriver: any = sql;
+try {
+  sqlDriver = require('mssql/msnodesqlv8');
+} catch {
+  sqlDriver = sql;
+}
+
+export { sql, sqlDriver };
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
@@ -25,9 +34,10 @@ export async function getDbPool(): Promise<sql.ConnectionPool> {
     return pool;
   }
   try {
-    pool = await new sql.ConnectionPool({ connectionString } as any).connect();
+    const p = await new sqlDriver.ConnectionPool({ connectionString } as any).connect();
+    pool = p;
     console.log(`[MSSQL] Connected successfully to ${server}/${database}`);
-    return pool;
+    return p;
   } catch (err) {
     console.error('[MSSQL] Connection error:', err);
     throw err;

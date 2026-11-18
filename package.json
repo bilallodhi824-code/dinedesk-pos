@@ -11,7 +11,9 @@
     "dev:client": "vite",
     "server": "tsx server/src/index.ts",
     "client": "vite",
-    "build": "vite build && tsc -p tsconfig.server.json",
+    "build": "vite build",
+    "build:server": "tsc -p tsconfig.server.json",
+    "build:all": "vite build && tsc -p tsconfig.server.json",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
     "start": "vite build && electron .",
     "dist": "vite build && electron-builder --win"
@@ -23,10 +25,14 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "msnodesqlv8": "^6.2.2",
     "mssql": "^12.7.14",
     "react": "18.3.1",
     "react-dom": "18.3.1"
+  },
+  "optionalDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "msnodesqlv8": "^6.2.2"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
@@ -37,8 +43,6 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "concurrently": "^8.2.2",
-    "electron": "^33.0.0",
-    "electron-builder": "^25.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.5.4",
     "vite": "^5.4.0"

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getDbPool } from '../db';
-import sql from 'mssql/msnodesqlv8';
+import sql from 'mssql';
 
 const router = Router();
 
@@ -9,7 +9,7 @@ router.get('/', async (_req: Request, res: Response) => {
   try {
     const p = await getDbPool();
     const result = await p.request().query('SELECT * FROM Tickets ORDER BY createdAt DESC');
-    const tickets = result.recordset.map(row => ({
+    const tickets = result.recordset.map((row: any) => ({
       id: row.id,
       tid: row.tid,
       title: row.title,

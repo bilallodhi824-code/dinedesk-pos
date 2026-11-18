@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getDbPool } from '../db';
-import sql from 'mssql/msnodesqlv8';
+import sql from 'mssql';
 
 const router = Router();
 
@@ -12,7 +12,7 @@ router.get('/', async (_req: Request, res: Response) => {
     if (!result.recordset.length) {
       return res.status(404).json({ error: 'Settings not found' });
     }
-    const row = result.recordset[0];
+    const row: any = result.recordset[0];
     res.json({
       name: row.name,
       address: row.address,

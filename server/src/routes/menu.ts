@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getDbPool } from '../db';
-import sql from 'mssql/msnodesqlv8';
+import sql from 'mssql';
 
 const router = Router();
 
@@ -9,7 +9,7 @@ router.get('/', async (_req: Request, res: Response) => {
   try {
     const p = await getDbPool();
     const result = await p.request().query('SELECT id, name, price, cat, available FROM MenuItems ORDER BY cat, name');
-    const menu = result.recordset.map(row => ({
+    const menu = result.recordset.map((row: any) => ({
       id: row.id,
       name: row.name,
       price: Number(row.price),

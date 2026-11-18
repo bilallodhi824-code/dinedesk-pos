@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getDbPool } from '../db';
-import sql from 'mssql/msnodesqlv8';
+import sql from 'mssql';
 
 const router = Router();
 
@@ -23,7 +23,7 @@ router.get('/', async (_req: Request, res: Response) => {
       });
     }
 
-    const orders = ordersRes.recordset.map(row => {
+    const orders = ordersRes.recordset.map((row: any) => {
       const paid = Boolean(row.paid);
       const pay = paid && row.payMethod ? {
         method: row.payMethod,
