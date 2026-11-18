@@ -29,11 +29,6 @@
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },
-  "optionalDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^25.0.0",
-    "msnodesqlv8": "^6.2.2"
-  },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
