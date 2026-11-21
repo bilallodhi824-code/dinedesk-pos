@@ -587,3 +587,92 @@ td .muted { font-size: 12.5px; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ------------------------------ Thermal Print Styles (58mm & 80mm) ------------------------------ */
+.thermal-slip-box {
+  background: var(--paper);
+  color: var(--paper-ink);
+  font-family: var(--f-mono);
+  box-shadow: var(--shadow-slip);
+  border: 1px solid var(--paper-line);
+  border-radius: 4px;
+  padding: 16px 14px;
+  margin: 0 auto;
+  line-height: 1.4;
+}
+.thermal-slip-box.size-58mm {
+  width: 250px;
+  font-size: 11.5px;
+}
+.thermal-slip-box.size-80mm {
+  width: 320px;
+  font-size: 13px;
+}
+.thermal-slip-header {
+  text-align: center;
+  border-bottom: 1px dashed var(--paper-line);
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+}
+.thermal-slip-copy-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid currentColor;
+  margin-top: 4px;
+  letter-spacing: 1px;
+}
+.thermal-slip-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.thermal-slip-divider {
+  border-top: 1px dashed var(--paper-line);
+  margin: 8px 0;
+}
+.thermal-slip-footer {
+  text-align: center;
+  border-top: 1px dashed var(--paper-line);
+  padding-top: 10px;
+  margin-top: 10px;
+  font-size: 11px;
+}
+
+@media print {
+  body, html {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .no-print, .rail, .topbar, .nav-btn, .btn, .modal-h, .modal-f, .toast, .mobile-cart-float, .pos-mobile-tabs, .scrim {
+    display: none !important;
+  }
+  .print-only-container {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .thermal-slip-box {
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    color: #000000 !important;
+    background: #ffffff !important;
+    page-break-after: always;
+    margin: 0 auto !important;
+  }
+  .thermal-slip-box.size-58mm {
+    width: 54mm !important;
+    max-width: 54mm !important;
+    padding: 0 !important;
+  }
+  .thermal-slip-box.size-80mm {
+    width: 76mm !important;
+    max-width: 76mm !important;
+    padding: 0 !important;
+  }
+}

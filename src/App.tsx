@@ -1,1690 +1,1772 @@
-import React, { useState, useMemo, useEffect, useRef, createContext, useContext } from 'react';
-import './styles.css';
-import { api } from './api';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { api, User, Product, Order, DashboardMetrics, PaymentSubmission, AdminStats } from './api';
 
-/* =====================================================================
-   DineDesk POS - sample build (React + TypeScript)
-   Placeholder brand name: change BRAND below.
-   Panels: Restaurant (user) panel and Developer (admin) panel.
-   Payments go through the PaymentProvider interface, so a real gateway
-   (Stripe, Safepay, PayFast, ...) replaces `sandbox` without touching the UI.
-   ===================================================================== */
-
-const BRAND = 'DineDesk';
-
-/* ------------------------------ types ------------------------------ */
-type Role = 'user' | 'admin';
-type OrderType = 'dine-in' | 'takeaway' | 'delivery';
-type Method = 'cash' | 'card' | 'wallet';
-type Status = 'new' | 'preparing' | 'ready' | 'served';
-type Maint = 'off' | 'notice' | 'readonly';
-type Tone = 'good' | 'warn' | 'bad' | 'info' | 'mute';
-
-interface MenuItem { id: string; name: string; price: number; cat: string; available: boolean }
-interface Line { id: string; name: string; price: number; qty: number; note: string }
-interface Pay { method: Method; ref?: string; last4?: string; tendered?: number; change?: number }
-interface Order {
-  no: number; type: OrderType; table: string; customer: string; lines: Line[];
-  discountPct: number; taxPct: number; svcPct: number;
-  sub: number; discount: number; service: number; tax: number; total: number;
-  status: Status; paid: boolean; pay?: Pay; at: number; cashier: string;
-}
-interface Settings {
-  name: string; address: string; phone: string; tax: number; service: number; footer: string;
-  autoPrint: boolean; printer: string; paper: '80' | '58';
-}
-interface Tenant {
-  id: string; name: string; city: string; plan: 'Starter' | 'Pro' | 'Chain';
-  status: 'active' | 'trial' | 'suspended'; branches: number; version: string; sync: number; licenseDays: number;
-}
-interface Ticket {
-  id: string; tid: string; title: string; detail: string;
-  sev: 'critical' | 'high' | 'normal'; status: 'open' | 'progress' | 'resolved'; at: number; src: string;
-}
-interface Flags { wallet: boolean; delivery: boolean; discount: boolean }
-interface AuditEntry { at: number; actor: string; text: string }
-interface State {
-  session: null | { role: Role; name: string };
-  menu: MenuItem[]; orders: Order[]; nextNo: number; settings: Settings;
-  tenants: Tenant[]; tickets: Ticket[]; nextTicket: number;
-  flags: Flags; maint: Maint; maintMsg: string; gatewayDown: boolean; audit: AuditEntry[];
-  dbConnected: boolean;
-}
-interface Ctx {
-  S: State; setS: React.Dispatch<React.SetStateAction<State>>;
-  toast: (m: string) => void; now: number; enter: (r: Role) => string; audit: (t: string) => void;
-  print: (o: Order, which: PrintWhich, okMsg?: string) => Promise<void>;
+// Utility for formatting PKR currency
+function fmtPkr(amount: number): string {
+  return 'Rs. ' + (amount || 0).toLocaleString('en-PK', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
-/* ---------------------------- helpers ---------------------------- */
-const num = (n: number) => Math.round(n).toLocaleString('en-US');
-const money = (n: number) => 'Rs ' + num(n);
-const pad2 = (n: number) => String(n).padStart(2, '0');
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-const dateStr = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-const timeStr = (t: number) => new Date(t).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-const compact = (v: number) => (v >= 1000 ? (v / 1000).toFixed(1).replace('.0', '') + 'k' : String(v));
-function ago(t: number, now: number) {
-  const m = Math.max(0, Math.round((now - t) / 60000));
-  if (m < 1) return 'just now';
-  if (m < 60) return m + ' min ago';
-  const h = Math.floor(m / 60);
-  if (h < 24) return h + ' h ago';
-  return Math.floor(h / 24) + ' d ago';
-}
-const typeLabel = (o: { type: OrderType; table: string }) =>
-  o.type === 'dine-in' ? 'Dine-in ' + o.table : cap(o.type);
-
-function calc(lines: Line[], discountPct: number, type: OrderType, s: Settings) {
-  const sub = lines.reduce((a, l) => a + l.price * l.qty, 0);
-  const discount = Math.round((sub * discountPct) / 100);
-  const base = sub - discount;
-  const service = type === 'dine-in' ? Math.round((base * s.service) / 100) : 0;
-  const tax = Math.round(((base + service) * s.tax) / 100);
-  return { sub, discount, service, tax, total: base + service + tax };
-}
-
-function useNow(ms = 30000) {
-  const [n, setN] = useState(Date.now());
-  useEffect(() => {
-    const id = window.setInterval(() => setN(Date.now()), ms);
-    return () => window.clearInterval(id);
-  }, [ms]);
-  return n;
-}
-
-function useOnline() {
-  const [on, setOn] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
-  useEffect(() => {
-    const up = () => setOn(true);
-    const down = () => setOn(false);
-    window.addEventListener('online', up);
-    window.addEventListener('offline', down);
-    return () => { window.removeEventListener('online', up); window.removeEventListener('offline', down); };
-  }, []);
-  return on;
-}
-
-function copyText(text: string, done: () => void, fail: () => void) {
-  try { navigator.clipboard.writeText(text).then(done, fail); } catch { fail(); }
-}
-
-/* --------------------------- payment layer --------------------------- */
-interface PayReq {
-  amount: number; method: Method;
-  card?: { name: string; number: string; expiry: string; cvc: string };
-  wallet?: { phone: string };
-}
-interface PayRes { ok: boolean; ref?: string; last4?: string; error?: string }
-interface PaymentProvider { name: string; charge(req: PayReq): Promise<PayRes> }
-
-const gatewayState = { down: false };
-
-function luhn(n: string) {
-  let sum = 0; let alt = false;
-  for (let i = n.length - 1; i >= 0; i--) {
-    let d = Number(n[i]);
-    if (alt) { d *= 2; if (d > 9) d -= 9; }
-    sum += d; alt = !alt;
-  }
-  return n.length > 0 && sum % 10 === 0;
-}
-
-/* Sandbox adapter. A real gateway implements the same `charge` contract. */
-const sandbox: PaymentProvider = {
-  name: 'Sandbox Gateway',
-  async charge(req) {
-    await new Promise(r => setTimeout(r, 1300));
-    if (typeof navigator !== 'undefined' && !navigator.onLine) return { ok: false, error: 'No internet connection. Take cash, or try again when the connection is back.' };
-    if (gatewayState.down) return { ok: false, error: 'Payment gateway is unreachable (503). Try again, or take cash.' };
-    const ref = 'SBX-' + Math.random().toString(36).slice(2, 8).toUpperCase();
-    if (req.method === 'card' && req.card) {
-      const n = req.card.number.replace(/\s/g, '');
-      if (!luhn(n)) return { ok: false, error: 'This card number is not valid.' };
-      if (n === '4000000000000002') return { ok: false, error: 'Card declined by the issuing bank.' };
-      if (n === '4000000000009995') return { ok: false, error: 'Insufficient funds on this card.' };
-      return { ok: true, ref, last4: n.slice(-4) };
-    }
-    if (req.method === 'wallet' && req.wallet) {
-      if (req.wallet.phone.endsWith('0000')) return { ok: false, error: 'The wallet request was rejected.' };
-      return { ok: true, ref };
-    }
-    return { ok: false, error: 'Unsupported payment method.' };
-  },
-};
-
-/* ------------------------------ seed data ------------------------------ */
-const CATS = ['Starters', 'BBQ & Grill', 'Karahi & Curries', 'Rice & Bread', 'Drinks', 'Desserts'];
-const RAW_MENU: [string, number, number, boolean?][] = [
-  ['Chicken Samosa (3 pcs)', 250, 0], ['Dahi Bhallay', 320, 0], ['Chana Chaat', 280, 0], ['Hot Wings (6 pcs)', 690, 0],
-  ['Chicken Tikka (Leg)', 480, 1], ['Seekh Kabab (4 pcs)', 780, 1], ['Malai Boti', 950, 1], ['Beef Bihari Boti', 1150, 1], ['Mutton Chops (4 pcs)', 1850, 1, false],
-  ['Chicken Karahi (Half)', 1650, 2], ['Chicken Karahi (Full)', 3100, 2], ['Mutton Karahi (Half)', 2450, 2], ['Nihari', 1250, 2], ['Daal Mash', 650, 2], ['Haleem', 700, 2, false],
-  ['Chicken Biryani', 650, 3], ['Plain Rice', 300, 3], ['Naan', 70, 3], ['Garlic Naan', 120, 3], ['Roghni Naan', 110, 3], ['Paratha', 90, 3],
-  ['Mint Margarita', 350, 4], ['Sweet Lassi', 300, 4], ['Soft Drink (345 ml)', 120, 4], ['Mineral Water', 100, 4], ['Doodh Patti Chai', 180, 4], ['Kashmiri Chai', 280, 4],
-  ['Gulab Jamun (2 pcs)', 250, 5], ['Kheer', 280, 5], ['Gajar Halwa', 350, 5],
-];
-const MENU0: MenuItem[] = RAW_MENU.map((m, i) => ({
-  id: 'm' + (i + 1), name: m[0], price: m[1], cat: CATS[m[2]], available: m[3] !== false,
-}));
-const TABLES = Array.from({ length: 12 }, (_, i) => 'T' + (i + 1));
-const PRICE = { Starter: 6000, Pro: 12000, Chain: 30000 };
-const NEXT: Record<Status, Status> = { new: 'preparing', preparing: 'ready', ready: 'served', served: 'served' };
-const ACT: Record<Status, string> = { new: 'Start preparing', preparing: 'Mark ready', ready: 'Mark served', served: '' };
-
-const SETTINGS0: Settings = {
-  name: 'Karachi Tandoor House', address: 'Shop 14, Clifton Block 5, Karachi', phone: '021-0000-0000',
-  tax: 13, service: 5, footer: 'Thank you for dining with us!',
-  autoPrint: typeof window !== 'undefined' && !!window.posPrint, printer: '', paper: '80',
-};
-
-function seedOrders(now: number, menu: MenuItem[], s: Settings): Order[] {
-  let seed = 11;
-  const r = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
-  const pool = menu.filter(m => m.available);
-  const statuses: Status[] = ['new', 'new', 'preparing', 'preparing', 'ready'];
-  const raw: Order[] = [];
-  for (let i = 0; i < 40; i++) {
-    const active = i < 5;
-    const mins = active ? 3 + i * 7 : 40 + (((i - 5) * 53) % 650);
-    const type: OrderType = r() < 0.62 ? 'dine-in' : r() < 0.6 ? 'takeaway' : 'delivery';
-    const picked: Line[] = [];
-    const n = 2 + Math.floor(r() * 4);
-    for (let k = 0; k < n; k++) {
-      const m = pool[Math.floor(r() * pool.length)];
-      if (!picked.find(l => l.id === m.id)) picked.push({ id: m.id, name: m.name, price: m.price, qty: 1 + Math.floor(r() * 3), note: '' });
-    }
-    const discountPct = r() < 0.12 ? 10 : 0;
-    const t = calc(picked, discountPct, type, s);
-    const paid = active ? i % 2 === 1 : true;
-    const x = r();
-    const method: Method = x < 0.45 ? 'cash' : x < 0.85 ? 'card' : 'wallet';
-    const ref = method === 'cash' ? undefined : 'SBX-' + Math.floor(r() * 1e6).toString(36).toUpperCase().padStart(5, '0');
-    raw.push({
-      no: 0, type, table: type === 'dine-in' ? 'T' + (1 + Math.floor(r() * 12)) : '', customer: '', lines: picked,
-      discountPct, taxPct: s.tax, svcPct: s.service, ...t,
-      status: active ? statuses[i] : 'served', paid,
-      pay: paid ? { method, ref, last4: method === 'card' ? String(1000 + Math.floor(r() * 8999)) : undefined } : undefined,
-      at: now - mins * 60000, cashier: r() < 0.7 ? 'Ayesha' : 'Hamza',
-    });
-  }
-  raw.sort((a, b) => a.at - b.at).forEach((o, i) => { o.no = 1001 + i; });
-  return raw.reverse();
-}
-
-const TENANTS0: Tenant[] = [
-  { id: 't1', name: 'Karachi Tandoor House', city: 'Karachi', plan: 'Pro', status: 'active', branches: 2, version: '2.4.1', sync: 2, licenseDays: 212 },
-  { id: 't2', name: 'Lahore Chai Point', city: 'Lahore', plan: 'Starter', status: 'active', branches: 1, version: '2.4.1', sync: 5, licenseDays: 41 },
-  { id: 't3', name: 'Gulberg Grill Co.', city: 'Lahore', plan: 'Chain', status: 'active', branches: 5, version: '2.4.0', sync: 1, licenseDays: 318 },
-  { id: 't4', name: 'Burns Road Kitchen', city: 'Karachi', plan: 'Pro', status: 'active', branches: 1, version: '2.4.1', sync: 9, licenseDays: 12 },
-  { id: 't5', name: 'Saddar Biryani Corner', city: 'Karachi', plan: 'Starter', status: 'trial', branches: 1, version: '2.4.1', sync: 14, licenseDays: 6 },
-  { id: 't6', name: 'Hill Cafe Islamabad', city: 'Islamabad', plan: 'Pro', status: 'active', branches: 2, version: '2.4.1', sync: 3, licenseDays: 96 },
-  { id: 't7', name: 'Rabri House Hyderabad', city: 'Hyderabad', plan: 'Starter', status: 'suspended', branches: 1, version: '2.3.8', sync: 20160, licenseDays: -18 },
-];
-
-function seedTickets(now: number): Ticket[] {
-  const m = 60000;
-  return [
-    { id: 'TCK-2041', tid: 't5', title: 'Cannot sign in on the new tablet', detail: 'Cashier gets "invalid session" after the first login.', sev: 'normal', status: 'resolved', at: now - 2880 * m, src: 'Email' },
-    { id: 'TCK-2040', tid: 't4', title: 'Add a "Family deals" menu category', detail: 'Wants bundles with a fixed price shown as one line.', sev: 'normal', status: 'open', at: now - 600 * m, src: 'POS report' },
-    { id: 'TCK-2039', tid: 't3', title: 'Card payments time out at peak hours', detail: 'About 1 in 8 card charges fails with a timeout between 8 and 10 pm.', sev: 'critical', status: 'open', at: now - 190 * m, src: 'Monitoring' },
-    { id: 'TCK-2038', tid: 't2', title: 'Printer prints a blank slip after update', detail: 'Customer receipt is blank on the 80 mm printer, kitchen copy is fine.', sev: 'high', status: 'progress', at: now - 1500 * m, src: 'POS report' },
-    { id: 'TCK-2036', tid: 't6', title: 'Daily report shows the wrong tax total', detail: 'Tax column excludes service charge on dine-in orders.', sev: 'high', status: 'resolved', at: now - 5760 * m, src: 'POS report' },
-  ];
-}
-
-function seedAudit(now: number): AuditEntry[] {
-  const m = 60000;
-  return [
-    { at: now - 300 * m, actor: 'dev@dinedesk.io', text: 'Released v2.4.1 to all restaurants' },
-    { at: now - 1900 * m, actor: 'dev@dinedesk.io', text: 'Extended license for Burns Road Kitchen by 30 days' },
-    { at: now - 8000 * m, actor: 'system', text: 'Suspended Rabri House Hyderabad: license expired' },
-  ];
-}
-
-function initState(): State {
-  const now = Date.now();
-  const menu = MENU0.map(m => ({ ...m }));
-  const orders = seedOrders(now, menu, SETTINGS0);
-  return {
-    session: null, menu, orders, nextNo: 1001 + orders.length, settings: { ...SETTINGS0 },
-    tenants: TENANTS0.map(t => ({ ...t })), tickets: seedTickets(now), nextTicket: 2042,
-    flags: { wallet: true, delivery: true, discount: true },
-    maint: 'off', maintMsg: 'Scheduled maintenance tonight 03:00 to 03:30. Billing stays available.',
-    gatewayDown: false, audit: seedAudit(now),
-    dbConnected: false,
-  };
-}
-
-/* Everything is saved on this computer (localStorage inside the desktop app), so the app
-   works with no internet and keeps its data after a restart. */
-const STORE_KEY = 'dinedesk.pos.v1';
-function loadState(): State {
-  const base = initState();
-  try {
-    const raw = localStorage.getItem(STORE_KEY);
-    if (!raw) return base;
-    const saved = JSON.parse(raw) as Partial<State>;
-    return {
-      ...base, ...saved, session: null, dbConnected: false,
-      settings: { ...base.settings, ...(saved.settings || {}) },
-      flags: { ...base.flags, ...(saved.flags || {}) },
-    };
-  } catch { return base; }
-}
-function saveState(s: State) {
-  try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ ...s, session: null, orders: s.orders.slice(0, 1500) }));
-  } catch { /* storage full or blocked: the app keeps working for this session */ }
-}
-
-function sampleOrder(s: Settings): Order {
-  const lines: Line[] = [
-    { id: 'x1', name: 'Chicken Karahi (Half)', price: 1650, qty: 1, note: 'Less oil' },
-    { id: 'x2', name: 'Garlic Naan', price: 120, qty: 4, note: '' },
-    { id: 'x3', name: 'Mint Margarita', price: 350, qty: 2, note: 'No ice' },
-    { id: 'x4', name: 'Gulab Jamun (2 pcs)', price: 250, qty: 1, note: '' },
-  ];
-  const t = calc(lines, 10, 'dine-in', s);
-  return {
-    no: 1042, type: 'dine-in', table: 'T7', customer: '', lines, discountPct: 10, taxPct: s.tax, svcPct: s.service, ...t,
-    status: 'new', paid: true, pay: { method: 'card', ref: 'SBX-8F2K9Q', last4: '4242' }, at: Date.now(), cashier: 'Ayesha',
-  };
-}
-
-/* ------------------------------ slips ------------------------------ */
-interface Row { k: string; a?: string; b?: string; q?: number; bold?: boolean }
-const W = 32;
-const ctr = (s: string) => ' '.repeat(Math.max(0, Math.floor((W - s.length) / 2))) + s;
-const lr = (a: string, b: string) => a + ' '.repeat(Math.max(1, W - a.length - b.length)) + b;
-
-function customerRows(o: Order, s: Settings): Row[] {
-  const r: Row[] = [
-    { k: 'title', a: s.name.toUpperCase() },
-    { k: 'c', a: s.address },
-    { k: 'c', a: 'Tel ' + s.phone },
-    { k: 'rule' },
-    { k: 'lr', a: 'Order #' + o.no, b: typeLabel(o) },
-    { k: 'lr', a: dateStr(o.at), b: timeStr(o.at) },
-    { k: 'lr', a: 'Cashier', b: o.cashier },
-  ];
-  if (o.customer) r.push({ k: 'lr', a: 'Customer', b: o.customer });
-  r.push({ k: 'rule' }, { k: 'head', a: 'Item', b: 'Amount' });
-  o.lines.forEach(l => {
-    r.push({ k: 'item', a: l.name, q: l.qty, b: num(l.price * l.qty) });
-    if (l.qty > 1) r.push({ k: 'note', a: '    @ ' + num(l.price) + ' each' });
-  });
-  r.push({ k: 'rule' }, { k: 'lr', a: 'Subtotal', b: num(o.sub) });
-  if (o.discount) r.push({ k: 'lr', a: 'Discount (' + o.discountPct + '%)', b: '-' + num(o.discount) });
-  if (o.service) r.push({ k: 'lr', a: 'Service charge (' + o.svcPct + '%)', b: num(o.service) });
-  r.push({ k: 'lr', a: 'Sales tax (' + o.taxPct + '%)', b: num(o.tax) });
-  r.push({ k: 'rule2' }, { k: 'total', a: 'TOTAL', b: money(o.total) }, { k: 'rule2' });
-  if (o.paid && o.pay) {
-    const p = o.pay;
-    if (p.method === 'cash') {
-      r.push({ k: 'lr', a: 'Paid by CASH', b: '' });
-      if (p.tendered !== undefined) r.push({ k: 'lr', a: 'Received', b: num(p.tendered) }, { k: 'lr', a: 'Change', b: num(p.change || 0) });
-    } else if (p.method === 'card') {
-      r.push({ k: 'lr', a: 'Paid by CARD', b: '**** ' + (p.last4 || '') });
-    } else {
-      r.push({ k: 'lr', a: 'Paid by WALLET', b: '' });
-    }
-    if (p.ref) r.push({ k: 'lr', a: 'Ref', b: p.ref });
-  } else {
-    r.push({ k: 'c', a: '** UNPAID - PROVISIONAL BILL **', bold: true });
-  }
-  r.push({ k: 'gap' }, { k: 'c', a: s.footer }, { k: 'c', a: 'Powered by ' + BRAND });
-  return r;
-}
-
-function kitchenRows(o: Order): Row[] {
-  const qty = o.lines.reduce((a, l) => a + l.qty, 0);
-  const r: Row[] = [
-    { k: 'title', a: 'KITCHEN COPY' },
-    { k: 'rule2' },
-    { k: 'hero', a: '#' + o.no },
-    { k: 'tag', a: o.type === 'dine-in' ? 'DINE-IN  TABLE ' + o.table : o.type.toUpperCase() },
-    { k: 'lr', a: timeStr(o.at), b: o.cashier },
-  ];
-  if (o.customer) r.push({ k: 'lr', a: 'Customer', b: o.customer });
-  r.push({ k: 'rule2' });
-  o.lines.forEach(l => {
-    r.push({ k: 'big', a: l.qty + ' x ' + l.name.toUpperCase() });
-    if (l.note) r.push({ k: 'note', a: '>> ' + l.note });
-  });
-  r.push(
-    { k: 'rule2' },
-    { k: 'lr', a: 'Total items', b: String(qty) },
-    { k: 'gap' },
-    { k: 'c', a: '--- OWNER INFO ---' },
-    { k: 'lr', a: 'Bill total', b: money(o.total) },
-    { k: 'lr', a: 'Status', b: o.paid && o.pay ? 'PAID ' + o.pay.method.toUpperCase() : 'UNPAID' },
-  );
-  if (o.pay && o.pay.ref) r.push({ k: 'lr', a: 'Txn ref', b: o.pay.ref });
-  return r;
-}
-
-function toText(rows: Row[]) {
-  return rows.map(r => {
-    switch (r.k) {
-      case 'rule': return '-'.repeat(W);
-      case 'rule2': return '='.repeat(W);
-      case 'gap': return '';
-      case 'title': case 'c': case 'tag': case 'hero': return ctr(r.a || '');
-      case 'lr': case 'head': case 'total': return lr(r.a || '', r.b || '');
-      case 'item': return lr(r.q + 'x ' + r.a, r.b || '');
-      default: return r.a || '';
-    }
-  }).join('\n');
-}
-
-/* ------------------------------ printing ------------------------------ */
-/* In the desktop app, window.posPrint is provided by electron/preload.cjs and prints with no
-   dialog. In a plain browser the same slips go through the browser print dialog instead. */
-type PrintWhich = 'customer' | 'kitchen' | 'both';
-interface PrinterInfo { name: string; isDefault: boolean }
-interface PrintResult { ok: boolean; error?: string }
-interface PrintBridge {
-  isDesktop: boolean;
-  listPrinters(): Promise<PrinterInfo[]>;
-  printHtml(html: string, opts: { printer: string; widthMm: number }): Promise<PrintResult>;
-}
-declare global { interface Window { posPrint?: PrintBridge } }
-
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-function rowHtml(r: Row): string {
-  const a = esc(r.a || '');
-  const b = esc(r.b || '');
-  switch (r.k) {
-    case 'rule': return '<div class="rule"></div>';
-    case 'rule2': return '<div class="rule2"></div>';
-    case 'gap': return '<div class="gap"></div>';
-    case 'title': return '<div class="title">' + a + '</div>';
-    case 'hero': return '<div class="hero">' + a + '</div>';
-    case 'tag': return '<div class="tag">' + a + '</div>';
-    case 'c': return '<div class="c' + (r.bold ? ' b' : '') + '">' + a + '</div>';
-    case 'lr': return '<div class="lr"><span>' + a + '</span><span>' + b + '</span></div>';
-    case 'head': return '<div class="lr head"><span>' + a + '</span><span>' + b + '</span></div>';
-    case 'total': return '<div class="lr total"><span>' + a + '</span><span>' + b + '</span></div>';
-    case 'item': return '<div class="item"><span>' + (r.q || 0) + 'x</span><span>' + a + '</span><span class="m">' + b + '</span></div>';
-    case 'big': return '<div class="big">' + a + '</div>';
-    default: return '<div class="note">' + a + '</div>';
-  }
-}
-
-/* Plain black-on-white page sized for a thermal roll (72 mm printable on an 80 mm roll). */
-function slipHtml(rows: Row[], kind: 'customer' | 'kitchen', paper: '80' | '58'): string {
-  const narrow = paper === '58';
-  const w = narrow ? 48 : 72;
-  const fs = narrow ? 11 : 12;
-  const css = `
-@page{size:${paper}mm auto;margin:0}
-*{box-sizing:border-box}
-html,body{margin:0;padding:0;background:#fff;color:#000}
-body{width:${w}mm;margin:0 auto;padding:3mm 0 8mm;font:${fs}px/1.45 "Courier New",Consolas,monospace}
-.title{text-align:center;font-weight:700;font-size:${fs + 1}px;letter-spacing:.04em}
-.c{text-align:center}.c.b{font-weight:700;margin-top:4px}
-.rule{margin:6px 0;border-top:1px dashed #000}
-.rule2{height:4px;margin:6px 0;border-top:1px solid #000;border-bottom:1px solid #000}
-.gap{height:8px}
-.lr{display:flex;justify-content:space-between;gap:8px}
-.lr span:last-child{text-align:right;white-space:nowrap}
-.head{font-size:${fs - 1}px;text-transform:uppercase}
-.total{font-size:${fs + 3}px;font-weight:700}
-.item{display:grid;grid-template-columns:2.4em minmax(0,1fr) auto;gap:4px}
-.item .m{text-align:right}
-.note{white-space:pre-wrap}
-.hero{text-align:center;font-size:${fs + 24}px;font-weight:700;line-height:1.1}
-.tag{text-align:center;font-weight:700;letter-spacing:.05em;margin-bottom:4px}
-.big{margin-top:6px;font-size:${fs + 3}px;font-weight:700;line-height:1.3}
-.big + .note{padding-left:1.5em;font-weight:700}`;
-  return '<!doctype html><html><head><meta charset="utf-8"><title>' + kind + ' slip</title><style>' + css + '</style></head><body>'
-    + rows.map(rowHtml).join('') + '</body></html>';
-}
-
-function sendToPrinter(html: string, s: Settings): Promise<PrintResult> {
-  const bridge = window.posPrint;
-  if (bridge) {
-    return bridge.printHtml(html, { printer: s.printer, widthMm: s.paper === '58' ? 58 : 80 })
-      .catch((): PrintResult => ({ ok: false, error: 'The print service did not respond.' }));
-  }
-  return new Promise<PrintResult>(resolve => {
-    try {
-      const f = document.createElement('iframe');
-      f.setAttribute('aria-hidden', 'true');
-      f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-      document.body.appendChild(f);
-      const doc = f.contentDocument;
-      const win = f.contentWindow;
-      if (!doc || !win) { f.remove(); resolve({ ok: false, error: 'Printing is not available in this window.' }); return; }
-      doc.open(); doc.write(html); doc.close();
-      window.setTimeout(() => {
-        try { win.focus(); win.print(); resolve({ ok: true }); }
-        catch { resolve({ ok: false, error: 'The browser blocked printing.' }); }
-        window.setTimeout(() => f.remove(), 2000);
-      }, 250);
-    } catch { resolve({ ok: false, error: 'Printing is not available in this window.' }); }
+// Format date in Asia/Karachi friendly format
+function fmtDateTime(dateStr?: string | number): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  return d.toLocaleString('en-PK', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
   });
 }
 
-/* Kitchen copy first so the chef can start, then the customer receipt. Two jobs so the cutter separates them. */
-async function printOrder(o: Order, s: Settings, which: PrintWhich): Promise<PrintResult> {
-  const jobs: [Row[], 'customer' | 'kitchen'][] = [];
-  if (which !== 'customer') jobs.push([kitchenRows(o), 'kitchen']);
-  if (which !== 'kitchen') jobs.push([customerRows(o, s), 'customer']);
-  for (const j of jobs) {
-    const res = await sendToPrinter(slipHtml(j[0], j[1], s.paper), s);
-    if (!res.ok) return res;
-  }
-  return { ok: true };
+function generateUuid(): string {
+  return 'idemp-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
 }
 
-function Slip({ rows, kind }: { rows: Row[]; kind: 'customer' | 'kitchen' }) {
-  return (
-    <div className={'slip ' + kind}>
-      {rows.map((r, i) => {
-        switch (r.k) {
-          case 'rule': return <div key={i} className="sl-rule" />;
-          case 'rule2': return <div key={i} className="sl-rule2" />;
-          case 'gap': return <div key={i} className="sl-gap" />;
-          case 'title': return <div key={i} className="sl-title">{r.a}</div>;
-          case 'hero': return <div key={i} className="sl-hero">{r.a}</div>;
-          case 'tag': return <div key={i} className="sl-tag">{r.a}</div>;
-          case 'c': return <div key={i} className={'sl-c' + (r.bold ? ' b' : '')}>{r.a}</div>;
-          case 'lr': return <div key={i} className="sl-lr"><span>{r.a}</span><span>{r.b}</span></div>;
-          case 'head': return <div key={i} className="sl-lr sl-head"><span>{r.a}</span><span>{r.b}</span></div>;
-          case 'total': return <div key={i} className="sl-lr sl-total"><span>{r.a}</span><span>{r.b}</span></div>;
-          case 'item': return <div key={i} className="sl-item"><span className="q">{r.q}x</span><span className="n">{r.a}</span><span className="m">{r.b}</span></div>;
-          case 'big': return <div key={i} className="sl-big">{r.a}</div>;
-          case 'note': return <div key={i} className="sl-note">{r.a}</div>;
-          default: return null;
-        }
-      })}
-    </div>
-  );
-}
-
-/* ---------------------------- tiny UI kit ---------------------------- */
-const ICONS: Record<string, JSX.Element> = {
-  receipt: <path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3zM9 8h6M9 12h6" />,
-  list: <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />,
-  book: <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5v14zM8 7h8M8 11h6" />,
-  chart: <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
-  sliders: <g><path d="M4 6h8M16 6h4M4 12h4M12 12h8M4 18h10M18 18h2" /><circle cx="14" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="16" cy="18" r="2" /></g>,
-  lifebuoy: <g><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="3.5" /><path d="M5.6 5.6l3.9 3.9M14.5 14.5l3.9 3.9M18.4 5.6l-3.9 3.9M9.5 14.5l-3.9 3.9" /></g>,
-  grid: <g><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></g>,
-  store: <path d="M4 9l1-5h14l1 5M4 9v11h16V9M4 9a2.5 2.5 0 0 0 5 0 2.5 2.5 0 0 0 6 0 2.5 2.5 0 0 0 5 0M10 20v-6h4v6" />,
-  ticket: <path d="M3 8a2 2 0 0 0 0 8v2h18v-2a2 2 0 0 1 0-8V6H3v2zM13 6v12" />,
-  wrench: <path d="M14.7 6.3a4 4 0 0 0-5 5L3 18l3 3 6.7-6.7a4 4 0 0 0 5-5l-2.5 2.5-2.4-.6-.6-2.4 2.5-2.5z" />,
-  logout: <path d="M9 4H5v16h4M16 8l4 4-4 4M20 12H9" />,
-  swap: <path d="M7 7h12l-3-3M17 17H5l3 3" />,
-  plus: <path d="M12 5v14M5 12h14" />,
-  minus: <path d="M5 12h14" />,
-  x: <path d="M6 6l12 12M18 6L6 18" />,
-  check: <path d="M5 12.5l4.5 4.5L19 7" />,
-  card: <g><rect x="2.5" y="5" width="19" height="14" rx="2" /><path d="M2.5 10h19M6 15h4" /></g>,
-  cash: <g><rect x="2.5" y="6" width="19" height="12" rx="2" /><circle cx="12" cy="12" r="2.8" /></g>,
-  wallet: <g><path d="M4 7h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11" /><circle cx="16" cy="13.5" r="1.2" /></g>,
-  search: <g><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4.5 4.5" /></g>,
-  alert: <path d="M12 4l9 16H3L12 4zM12 10v4M12 17v.01" />,
-  note: <path d="M5 4h14v12l-4 4H5V4zM15 20v-4h4M8 9h8M8 13h4" />,
-};
-function Icon({ n, s = 18 }: { n: string; s?: number }) {
-  return (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {ICONS[n]}
-    </svg>
-  );
-}
-
-function Pill({ tone, children }: { tone: Tone; children: React.ReactNode }) {
-  return <span className={'pill ' + tone}>{children}</span>;
-}
-
-function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
-  return (
-    <button type="button" role="switch" aria-checked={on} aria-label={label} className={'sw' + (on ? ' on' : '')} onClick={() => onChange(!on)}>
-      <span />
-    </button>
-  );
-}
-
-function Seg<T extends string>({ value, options, onChange }: { value: T; options: [T, string][]; onChange: (v: T) => void }) {
-  return (
-    <div className="seg" role="group">
-      {options.map(o => (
-        <button type="button" key={o[0]} className={value === o[0] ? 'on' : ''} aria-pressed={value === o[0]} onClick={() => onChange(o[0])}>{o[1]}</button>
-      ))}
-    </div>
-  );
-}
-
-function Modal({ title, sub, onClose, wide, children, foot }: {
-  title: string; sub?: string; onClose: () => void; wide?: boolean; children: React.ReactNode; foot?: React.ReactNode;
-}) {
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [onClose]);
-  return (
-    <div className="scrim" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className={'modal' + (wide ? ' wide' : '')} role="dialog" aria-modal="true" aria-label={title}>
-        <div className="modal-h">
-          <div><h2>{title}</h2>{sub && <span className="muted">{sub}</span>}</div>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close"><Icon n="x" /></button>
-        </div>
-        <div className="modal-b">{children}</div>
-        {foot && <div className="modal-f">{foot}</div>}
-      </div>
-    </div>
-  );
-}
-
-function Bars({ data, fmt }: { data: { label: string; v: number; hi?: boolean }[]; fmt: (v: number) => string }) {
-  const max = Math.max(1, ...data.map(d => d.v));
-  return (
-    <div className="bars" role="img" aria-label="Bar chart">
-      {data.map((d, i) => (
-        <div className="bar-col" key={i} title={d.label + ': ' + fmt(d.v)}>
-          <span className="bar-v">{d.v ? fmt(d.v) : ''}</span>
-          <div className="bar-track"><div className={'bar' + (d.hi ? ' hi' : '')} style={{ height: Math.max(d.v ? 3 : 0, (d.v / max) * 100) + '%' }} /></div>
-          <span className="bar-l">{d.label}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function HRow({ label, v, max, right }: { label: string; v: number; max: number; right: string }) {
-  return (
-    <div className="hrow">
-      <span className="hrow-l">{label}</span>
-      <div className="hrow-t"><div className="hrow-b" style={{ width: Math.max(2, (v / Math.max(1, max)) * 100) + '%' }} /></div>
-      <span className="hrow-r">{right}</span>
-    </div>
-  );
-}
-
-function Kpi({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: Tone }) {
-  return (
-    <div className="kpi">
-      <span className="kpi-l">{label}</span>
-      <b className={'kpi-v' + (tone ? ' t-' + tone : '')}>{value}</b>
-      {sub && <span className="kpi-s">{sub}</span>}
-    </div>
-  );
-}
-
-const AppCtx = createContext<Ctx>(null as unknown as Ctx);
-const useApp = () => useContext(AppCtx);
-
-/* ============================== root ============================== */
 export default function App() {
-  const [S, setS] = useState<State>(loadState);
-  const [toastMsg, setToast] = useState('');
-  const tRef = useRef(0);
-  const now = useNow();
-  gatewayState.down = S.gatewayDown;
+  // Auth state
+  const [user, setUser] = useState<User | null>(null);
+  const [loadingUser, setLoadingUser] = useState(true);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authRole, setAuthRole] = useState<'owner' | 'admin'>('owner');
+  const [dbLive, setDbLive] = useState(false);
 
+  // Form states for login/register
+  const [loginId, setLoginId] = useState('');
+  const [loginPass, setLoginPass] = useState('');
+  const [regName, setRegName] = useState('');
+  const [regMobile, setRegMobile] = useState('');
+  const [regCart, setRegCart] = useState('');
+  const [regCity, setRegCity] = useState('');
+  const [regPass, setRegPass] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+
+  // Owner active navigation tab
+  const [activeTab, setActiveTab] = useState<'pos' | 'dashboard' | 'products' | 'orders' | 'status'>('pos');
+  const [toastMsg, setToastMsg] = useState('');
+
+  // Owner POS state
+  const [products, setProducts] = useState<Product[]>([]);
+  const [cart, setCart] = useState<Array<{ product: Product; qty: number }>>([]);
+  const [payMethod, setPayMethod] = useState<'Cash' | 'JazzCash' | 'EasyPaisa'>('Cash');
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [checkoutError, setCheckoutError] = useState('');
+  const [mobilePosTab, setMobilePosTab] = useState<'menu' | 'cart'>('menu');
+
+  // Receipt Modal state
+  const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
+  const [receiptCopy, setReceiptCopy] = useState<'customer' | 'shop' | 'both'>('customer');
+  const [receiptWidth, setReceiptWidth] = useState<'58mm' | '80mm'>('80mm');
+
+  // Owner Dashboard state
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+
+  // Owner Products state
+  const [showAddProdModal, setShowAddProdModal] = useState(false);
+  const [newProdName, setNewProdName] = useState('');
+  const [newProdPrice, setNewProdPrice] = useState('');
+  const [newProdImg, setNewProdImg] = useState('');
+  const [prodSubmitting, setProdSubmitting] = useState(false);
+
+  // Owner Orders history
+  const [orders, setOrders] = useState<Order[]>([]);
+
+  // Owner Status / Payment submission state
+  const [paymentSubmissions, setPaymentSubmissions] = useState<PaymentSubmission[]>([]);
+  const [payAmount, setPayAmount] = useState('500');
+  const [paySubmitMethod, setPaySubmitMethod] = useState('JazzCash');
+  const [payRef, setPayRef] = useState('');
+  const [payInstructions, setPayInstructions] = useState('');
+  const [submittingPayment, setSubmittingPayment] = useState(false);
+
+  // Admin Workspace state
+  const [adminStats, setAdminStats] = useState<AdminStats | null>(null);
+  const [adminOwners, setAdminOwners] = useState<any[]>([]);
+  const [adminStatusFilter, setAdminStatusFilter] = useState<string>('all');
+  const [adminSearch, setAdminSearch] = useState('');
+  const [adminSelectedOwner, setAdminSelectedOwner] = useState<any | null>(null);
+  const [adminRejectReason, setAdminRejectReason] = useState('');
+  const [adminBlockReason, setAdminBlockReason] = useState('');
+  const [adminActionLoading, setAdminActionLoading] = useState(false);
+  const [adminAuditLogs, setAdminAuditLogs] = useState<any[]>([]);
+  const [adminActiveTab, setAdminActiveTab] = useState<'owners' | 'audit'>('owners');
+
+  const toastTimerRef = useRef<any>(null);
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastMsg(''), 3000);
+  };
+
+  // Check backend health and restore user session on mount
   useEffect(() => {
-    // Sync with MSSQL Express backend
-    api.fetchInitialState().then(serverState => {
-      if (serverState) {
-        setS(prev => ({
-          ...prev,
-          dbConnected: true,
-          menu: serverState.menu && serverState.menu.length > 0 ? serverState.menu : prev.menu,
-          orders: serverState.orders && serverState.orders.length > 0 ? serverState.orders : prev.orders,
-          settings: serverState.settings ? serverState.settings : prev.settings,
-          tenants: serverState.tenants && serverState.tenants.length > 0 ? serverState.tenants : prev.tenants,
-          tickets: serverState.tickets && serverState.tickets.length > 0 ? serverState.tickets : prev.tickets,
-          flags: serverState.flags ? serverState.flags : prev.flags,
-          maint: (serverState.maint as Maint) || prev.maint,
-          maintMsg: serverState.maintMsg || prev.maintMsg,
-          gatewayDown: serverState.gatewayDown !== undefined ? serverState.gatewayDown : prev.gatewayDown,
-          nextNo: serverState.nextNo || prev.nextNo,
-          nextTicket: serverState.nextTicket || prev.nextTicket,
-          audit: serverState.audit && serverState.audit.length > 0 ? serverState.audit : prev.audit,
-        }));
+    api.checkHealth().then(isOk => setDbLive(isOk));
+
+    api.getMe().then(u => {
+      if (u) {
+        setUser(u);
+        if (u.role === 'admin') setAuthRole('admin');
       }
-    }).catch(err => {
-      console.warn('Backend not reachable:', err);
-    });
+      setLoadingUser(false);
+    }).catch(() => setLoadingUser(false));
   }, []);
 
-  useEffect(() => { saveState(S); }, [S]);
+  // Fetch data whenever user or status changes
+  useEffect(() => {
+    if (!user) return;
 
-  const toast = (m: string) => {
-    setToast(m);
-    window.clearTimeout(tRef.current);
-    tRef.current = window.setTimeout(() => setToast(''), 2800);
-  };
-  const audit = (text: string) => {
-    api.postAudit('dev@dinedesk.io', text);
-    setS(s => ({ ...s, audit: [{ at: Date.now(), actor: 'dev@dinedesk.io', text }, ...s.audit].slice(0, 30) }));
-  };
-  const enter = (role: Role): string => {
-    if (role === 'user' && S.tenants[0].status === 'suspended')
-      return 'This restaurant account is suspended. Please contact ' + BRAND + ' support.';
-    setS(s => ({ ...s, session: { role, name: role === 'user' ? 'Ayesha' : 'Dev Team' } }));
-    return '';
+    if (user.role === 'admin') {
+      fetchAdminData();
+    } else if (user.role === 'owner') {
+      if (user.status === 'Approved') {
+        loadOwnerData();
+      } else {
+        loadPaymentStatus();
+      }
+    }
+  }, [user, user?.status]);
+
+  const loadOwnerData = async () => {
+    try {
+      const [prods, ords, mtr] = await Promise.all([
+        api.getProducts(true),
+        api.getOrders(),
+        api.getTodayMetrics(),
+      ]);
+      setProducts(prods);
+      setOrders(ords);
+      setMetrics(mtr);
+    } catch (err) {
+      console.warn('Failed to load owner data:', err);
+    }
   };
 
-  const print = async (o: Order, which: PrintWhich, okMsg?: string) => {
-    const res = await printOrder(o, S.settings, which);
-    toast(res.ok ? okMsg || 'Sent to the printer' : 'Could not print: ' + (res.error || 'unknown error'));
+  const loadPaymentStatus = async () => {
+    try {
+      const [statusRes, instRes] = await Promise.all([
+        api.getMyPaymentStatus(),
+        api.getPaymentInstructions(),
+      ]);
+      setPaymentSubmissions(statusRes.payments || []);
+      setPayInstructions(instRes.instructions || '');
+      // If status changed to Approved on server, update local user state
+      if (statusRes.ownerStatus && statusRes.ownerStatus !== user?.status) {
+        setUser(prev => prev ? { ...prev, status: statusRes.ownerStatus as any } : null);
+      }
+    } catch (err) {
+      console.warn('Failed to load payment status:', err);
+    }
   };
 
-  const ctx: Ctx = { S, setS, toast, now, enter, audit, print };
-  return (
-    <AppCtx.Provider value={ctx}>
-      {!S.session ? <Login /> : S.session.role === 'user' ? <UserApp /> : <AdminApp />}
-      {toastMsg && <div className="toast" role="status">{toastMsg}</div>}
-    </AppCtx.Provider>
-  );
-}
-
-/* ============================== login ============================== */
-function Login() {
-  const { S, enter } = useApp();
-  const [role, setRole] = useState<Role>('user');
-  const [email, setEmail] = useState('owner@tandoorhouse.pk');
-  const [pw, setPw] = useState('demo1234');
-  const [err, setErr] = useState('');
-  const pick = (r: Role) => {
-    setRole(r); setErr('');
-    setEmail(r === 'user' ? 'owner@tandoorhouse.pk' : 'dev@dinedesk.io');
-    setPw(r === 'user' ? 'demo1234' : 'admin1234');
+  const fetchAdminData = async () => {
+    try {
+      const [stats, ownersList, logs] = await Promise.all([
+        api.getAdminStats(),
+        api.getAdminOwners(adminStatusFilter, adminSearch),
+        api.getAuditLogs(),
+      ]);
+      setAdminStats(stats);
+      setAdminOwners(ownersList);
+      setAdminAuditLogs(logs);
+    } catch (err) {
+      console.warn('Failed to fetch admin data:', err);
+    }
   };
-  const submit = (e: React.FormEvent) => {
+
+  // Refresh status button for Pending/Rejected owners
+  const handleRefreshStatus = async () => {
+    try {
+      const updatedUser = await api.getMe();
+      if (updatedUser) {
+        setUser(updatedUser);
+        showToast('Account status refreshed: ' + updatedUser.status);
+      }
+    } catch {
+      showToast('Could not reach server.');
+    }
+  };
+
+  // Auth Submit (Login / Register)
+  const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !pw) { setErr('Enter your email and password.'); return; }
-    setErr(enter(role));
-  };
-  const sample = useMemo(() => sampleOrder(S.settings), [S.settings]);
-  return (
-    <div className="login">
-      <section className="login-art">
-        <div className="brand"><span className="brand-mark" />{BRAND}</div>
-        <h1>One order.<br />Two slips.<br />No shouting across the kitchen.</h1>
-        <p>Every order prints a priced receipt for the guest and a large-type ticket for the chef and owner.</p>
-        <div className="login-slips" aria-hidden="true">
-          <Slip rows={customerRows(sample, S.settings)} kind="customer" />
-          <Slip rows={kitchenRows(sample)} kind="kitchen" />
-        </div>
-      </section>
-      <section className="login-form">
-        <form onSubmit={submit} noValidate>
-          <h2>Sign in</h2>
-          <p className="muted">Choose the panel you want to open. Demo credentials are filled in.</p>
-          <Seg value={role} onChange={pick} options={[['user', 'Restaurant panel'], ['admin', 'Developer admin']]} />
-          <div className="field"><label htmlFor="em">Email</label><input id="em" className="in" type="email" value={email} onChange={e => setEmail(e.target.value)} autoComplete="username" /></div>
-          <div className="field"><label htmlFor="pw">Password</label><input id="pw" className="in" type="password" value={pw} onChange={e => setPw(e.target.value)} autoComplete="current-password" /></div>
-          {err && <div className="alert bad" role="alert"><Icon n="alert" />{err}</div>}
-          <button className="btn primary wide" type="submit">Open {role === 'user' ? 'restaurant' : 'admin'} panel</button>
-          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: '0.8rem', color: S.dbConnected ? '#10b981' : '#94a3b8' }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: S.dbConnected ? '#10b981' : '#64748b' }} />
-            {S.dbConnected ? 'Database: MSSQL (DineDeskDB Connected)' : 'Database: Local Storage (Vercel / Cloud Ready)'}
-          </div>
-          <p className="fine">{role === 'user' ? 'For restaurant owners, managers and cashiers.' : 'For the software team: tenants, support tickets, releases and maintenance.'}</p>
-        </form>
-      </section>
-    </div>
-  );
-}
+    setAuthError('');
+    setAuthSubmitting(true);
 
-/* ============================== shell ============================== */
-interface NavItem { k: string; label: string; icon: string; badge?: number }
-function Shell({ admin, nav, view, setView, title, sub, children }: {
-  admin: boolean; nav: NavItem[]; view: string; setView: (v: string) => void; title: string; sub: string; children: React.ReactNode;
-}) {
-  const { S, setS, enter, toast } = useApp();
-  const online = useOnline();
-  const tenant = S.tenants[0];
-  const switchPanel = () => {
-    const e = enter(admin ? 'user' : 'admin');
-    if (e) toast(e);
+    try {
+      if (authMode === 'login') {
+        const res = await api.login(loginId, loginPass);
+        setUser(res.user);
+        showToast('Welcome, ' + res.user.ownerName + '!');
+      } else {
+        // Register (Cart Owner only)
+        const res = await api.register({
+          ownerName: regName,
+          mobile: regMobile,
+          cartName: regCart,
+          city: regCity,
+          password: regPass,
+        });
+        setUser(res.user);
+        showToast('Account registered! Status: Pending Approval.');
+      }
+    } catch (err: any) {
+      setAuthError(err.message || 'Authentication failed');
+    } finally {
+      setAuthSubmitting(false);
+    }
   };
-  return (
-    <div className={'shell' + (admin ? ' admin' : '')}>
-      <aside className="rail">
-        <div className="brand"><span className="brand-mark" />{BRAND}{admin && <em>Admin</em>}</div>
-        <nav className="nav" aria-label="Main">
-          {nav.map(n => (
-            <button key={n.k} className={'nav-btn' + (view === n.k ? ' on' : '')} aria-current={view === n.k ? 'page' : undefined} onClick={() => setView(n.k)}>
-              <Icon n={n.icon} /><span>{n.label}</span>{!!n.badge && <i className="badge">{n.badge}</i>}
-            </button>
-          ))}
-        </nav>
-        <div className="rail-foot">
-          {admin ? <><b>Developer console</b><span>All restaurants</span></> : <><b>{tenant.name}</b><span>{tenant.city} · {tenant.plan} plan</span></>}
+
+  const handleLogout = () => {
+    api.logout();
+    setUser(null);
+    setCart([]);
+    setReceiptOrder(null);
+    showToast('Logged out successfully.');
+  };
+
+  // Payment Submission
+  const handlePaymentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!payRef.trim()) {
+      showToast('Please enter your transaction reference ID.');
+      return;
+    }
+    setSubmittingPayment(true);
+    try {
+      await api.submitPayment({
+        amount: parseFloat(payAmount) || 500,
+        paymentMethod: paySubmitMethod,
+        reference: payRef.trim(),
+      });
+      setPayRef('');
+      showToast('Payment submitted successfully! Byte NCo Admin will review.');
+      loadPaymentStatus();
+    } catch (err: any) {
+      showToast(err.message || 'Payment submission failed.');
+    } finally {
+      setSubmittingPayment(false);
+    }
+  };
+
+  // POS Cart management
+  const addToCart = (product: Product) => {
+    setCart(prev => {
+      const existing = prev.find(item => item.product.ProductID === product.ProductID);
+      if (existing) {
+        return prev.map(item =>
+          item.product.ProductID === product.ProductID ? { ...item, qty: item.qty + 1 } : item
+        );
+      }
+      return [...prev, { product, qty: 1 }];
+    });
+  };
+
+  const updateCartQty = (productId: number, delta: number) => {
+    setCart(prev =>
+      prev
+        .map(item => {
+          if (item.product.ProductID === productId) {
+            const newQty = item.qty + delta;
+            return newQty > 0 ? { ...item, qty: newQty } : null;
+          }
+          return item;
+        })
+        .filter(Boolean) as Array<{ product: Product; qty: number }>
+    );
+  };
+
+  const cartTotal = useMemo(() => {
+    return cart.reduce((sum, item) => sum + item.product.Price * item.qty, 0);
+  }, [cart]);
+
+  const cartItemCount = useMemo(() => {
+    return cart.reduce((sum, item) => sum + item.qty, 0);
+  }, [cart]);
+
+  // Checkout Execution
+  const handleCheckout = async () => {
+    if (cart.length === 0) {
+      setCheckoutError('Your cart is empty. Add products first.');
+      return;
+    }
+    setCheckoutError('');
+    setIsCheckingOut(true);
+
+    try {
+      const idempotencyKey = generateUuid();
+      const items = cart.map(item => ({
+        productId: item.product.ProductID,
+        quantity: item.qty,
+      }));
+
+      const res = await api.checkout({
+        idempotencyKey,
+        paymentMethod: payMethod,
+        items,
+      });
+
+      // Clear cart and show receipt dialog
+      setCart([]);
+      setReceiptOrder(res.order);
+      setReceiptCopy('customer');
+      showToast(`Sale completed! Order ${res.order.OrderNo}`);
+
+      // Refresh dashboard & orders in background
+      api.getOrders().then(setOrders);
+      api.getTodayMetrics().then(setMetrics);
+    } catch (err: any) {
+      setCheckoutError(err.message || 'Checkout failed. Please try again.');
+    } finally {
+      setIsCheckingOut(false);
+    }
+  };
+
+  // Create Product
+  const handleCreateProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const priceNum = parseFloat(newProdPrice);
+    if (!newProdName.trim() || isNaN(priceNum) || priceNum <= 0) {
+      showToast('Please enter a valid product name and positive price.');
+      return;
+    }
+    setProdSubmitting(true);
+    try {
+      const created = await api.createProduct({
+        productName: newProdName.trim(),
+        price: priceNum,
+        imageUrl: newProdImg.trim() || undefined,
+      });
+      setProducts(prev => [created, ...prev]);
+      setShowAddProdModal(false);
+      setNewProdName('');
+      setNewProdPrice('');
+      setNewProdImg('');
+      showToast(`Product "${created.ProductName}" added successfully!`);
+    } catch (err: any) {
+      showToast(err.message || 'Failed to add product.');
+    } finally {
+      setProdSubmitting(false);
+    }
+  };
+
+  const handleToggleProduct = async (productId: number) => {
+    try {
+      const updated = await api.toggleProduct(productId);
+      setProducts(prev =>
+        prev.map(p => (p.ProductID === productId ? { ...p, IsActive: updated.IsActive } : p))
+      );
+      showToast(`Product ${updated.IsActive ? 'activated' : 'deactivated'}.`);
+    } catch (err: any) {
+      showToast(err.message || 'Failed to update product.');
+    }
+  };
+
+  // Browser print trigger
+  const handlePrint = (copy: 'customer' | 'shop' | 'both') => {
+    setReceiptCopy(copy);
+    setTimeout(() => {
+      window.print();
+    }, 150);
+  };
+
+  // ----------------------------------------------------
+  // Loading Screen
+  // ----------------------------------------------------
+  if (loadingUser) {
+    return (
+      <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', fontFamily: 'var(--f-ui)' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '24px', fontWeight: 800, fontFamily: 'var(--f-display)', letterSpacing: '-0.5px', marginBottom: 8 }}>
+            Byte NCo <span style={{ color: 'var(--accent)' }}>POS</span>
+          </div>
+          <p className="muted">Loading system...</p>
         </div>
-      </aside>
-      <main className="work">
-        {!admin && S.maint !== 'off' && (
-          <div className="banner" role="status"><Icon n="wrench" /><span>{S.maintMsg}</span>{S.maint === 'readonly' && <Pill tone="warn">New orders paused</Pill>}</div>
-        )}
-        <header className="topbar">
-          <div className="topbar-title-wrap">
-            <div className="mobile-brand-row">
-              <span className="brand-mark" />
-              <b>{BRAND}</b>
-              {admin && <em>Admin</em>}
+      </div>
+    );
+  }
+
+  // ----------------------------------------------------
+  // 1. PUBLIC AUTH SCREEN (Login & Register)
+  // ----------------------------------------------------
+  if (!user) {
+    return (
+      <div className="auth-wrap">
+        <div className="auth-card">
+          <div className="auth-brand">
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: 18 }}>
+                B
+              </div>
+              <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800 }}>Byte NCo</h1>
             </div>
-            <h1>{title}</h1>
-            <span className="muted">{sub}</span>
+            <p className="fine" style={{ marginTop: 4 }}>Fast, Simple POS for Food Carts & Street Vendors (PKR)</p>
+          </div>
+
+          {/* Role & Mode Switcher */}
+          <div className="tabs" style={{ marginBottom: 18 }}>
+            <button
+              className={`tab ${authRole === 'owner' ? 'active' : ''}`}
+              onClick={() => { setAuthRole('owner'); setLoginId(''); }}
+            >
+              Food Cart Owner
+            </button>
+            <button
+              className={`tab ${authRole === 'admin' ? 'active' : ''}`}
+              onClick={() => { setAuthRole('admin'); setAuthMode('login'); setLoginId('admin@bytenco.com'); }}
+            >
+              Byte NCo Admin
+            </button>
+          </div>
+
+          {authRole === 'owner' && (
+            <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+              <button
+                className={`btn sm ${authMode === 'login' ? 'primary' : 'ghost'}`}
+                style={{ flex: 1 }}
+                onClick={() => setAuthMode('login')}
+              >
+                Sign In
+              </button>
+              <button
+                className={`btn sm ${authMode === 'register' ? 'primary' : 'ghost'}`}
+                style={{ flex: 1 }}
+                onClick={() => setAuthMode('register')}
+              >
+                Register New Cart
+              </button>
+            </div>
+          )}
+
+          {authError && (
+            <div className="alert bad" style={{ marginBottom: 14 }}>
+              {authError}
+            </div>
+          )}
+
+          <form onSubmit={handleAuthSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {authMode === 'login' ? (
+              <>
+                <div>
+                  <label className="label">
+                    {authRole === 'admin' ? 'Admin Email' : 'Mobile Number (e.g. 03001234567)'}
+                  </label>
+                  <input
+                    className="input"
+                    type={authRole === 'admin' ? 'email' : 'text'}
+                    placeholder={authRole === 'admin' ? 'admin@bytenco.com' : '03XXXXXXXXX'}
+                    value={loginId}
+                    onChange={e => setLoginId(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="label">Password</label>
+                  <input
+                    className="input"
+                    type="password"
+                    placeholder="Enter password"
+                    value={loginPass}
+                    onChange={e => setLoginPass(e.target.value)}
+                    required
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="label">Owner Full Name</label>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="e.g. Tariq Khan"
+                    value={regName}
+                    onChange={e => setRegName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="label">Mobile Number</label>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="03XXXXXXXXX"
+                    value={regMobile}
+                    onChange={e => setRegMobile(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="label">Food Cart / Stall Name</label>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="e.g. Khan Biryani & Roll Corner"
+                    value={regCart}
+                    onChange={e => setRegCart(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="label">City</label>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="e.g. Karachi, Lahore, Rawalpindi"
+                    value={regCity}
+                    onChange={e => setRegCity(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="label">Password (Min 6 characters)</label>
+                  <input
+                    className="input"
+                    type="password"
+                    placeholder="Create a strong password"
+                    value={regPass}
+                    onChange={e => setRegPass(e.target.value)}
+                    required
+                  />
+                </div>
+              </>
+            )}
+
+            <button className="btn primary wide" type="submit" disabled={authSubmitting} style={{ marginTop: 8 }}>
+              {authSubmitting ? 'Please wait...' : authMode === 'login' ? 'Sign In to POS' : 'Submit Cart Registration'}
+            </button>
+          </form>
+
+          {/* Database & Vercel mode status */}
+          <div style={{ marginTop: 18, textAlign: 'center', fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: dbLive ? '#10b981' : '#64748b' }} />
+            {dbLive ? 'MSSQL Database (ByteNcoDB Connected)' : 'Offline / Standalone Mode'}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ----------------------------------------------------
+  // 2. OWNER STATUS GATE SCREEN (Pending / Rejected / Blocked)
+  // ----------------------------------------------------
+  if (user.role === 'owner' && user.status !== 'Approved') {
+    return (
+      <div className="shell">
+        <header className="topbar">
+          <div>
+            <h1>{user.cartName || 'Byte NCo POS'}</h1>
+            <p className="fine">Owner: {user.ownerName} ({user.mobile}) &bull; {user.city}</p>
           </div>
           <div className="top-actions">
-            <Pill tone={S.dbConnected ? 'good' : 'info'}>{S.dbConnected ? 'MSSQL DB' : 'Local DB'}</Pill>
-            <Pill tone={online ? 'good' : 'warn'}>{online ? 'Online' : 'Offline'}</Pill>
-            <button className="btn ghost sm" onClick={switchPanel} title={admin ? 'Restaurant panel' : 'Admin panel'}>
-              <Icon n="swap" s={14} />
-              <span className="hide-on-mobile">{admin ? 'Restaurant' : 'Admin'}</span>
+            <span className={`pill ${user.status === 'Pending' ? 'warn' : 'bad'}`}>
+              Status: {user.status}
+            </span>
+            <button className="btn ghost sm" onClick={handleRefreshStatus}>
+              Refresh Status
             </button>
-            <button className="btn ghost sm" onClick={() => setS(s => ({ ...s, session: null }))} title="Sign out">
-              <Icon n="logout" s={14} />
-              <span className="hide-on-mobile">Sign out</span>
+            <button className="btn ghost sm" onClick={handleLogout}>
+              Logout
             </button>
           </div>
         </header>
-        <div className="page">{children}</div>
-      </main>
-    </div>
-  );
-}
 
-/* ============================ restaurant panel ============================ */
-type UView = 'pos' | 'orders' | 'menu' | 'reports' | 'support' | 'settings';
-function UserApp() {
-  const { S, now } = useApp();
-  const [view, setView] = useState<UView>('pos');
-  const [slipNo, setSlipNo] = useState<number | null>(null);
-  const slipOrder = slipNo === null ? undefined : S.orders.find(o => o.no === slipNo);
-  const active = S.orders.filter(o => o.status !== 'served').length;
-  const nav: NavItem[] = [
-    { k: 'pos', label: 'New order', icon: 'receipt' },
-    { k: 'orders', label: 'Orders', icon: 'list', badge: active },
-    { k: 'menu', label: 'Menu', icon: 'book' },
-    { k: 'reports', label: 'Reports', icon: 'chart' },
-    { k: 'support', label: 'Support', icon: 'lifebuoy' },
-    { k: 'settings', label: 'Settings', icon: 'sliders' },
-  ];
-  const titles: Record<UView, [string, string]> = {
-    pos: ['New order', 'Tap items to build the bill'],
-    orders: ['Orders', 'Kitchen board and order history'],
-    menu: ['Menu', 'Prices and availability'],
-    reports: ['Reports', 'Sales for the last 12 hours'],
-    support: ['Support', 'Report a problem to the ' + BRAND + ' team'],
-    settings: ['Settings', 'Receipt details and tax'],
-  };
-  void now;
-  return (
-    <Shell admin={false} nav={nav} view={view} setView={v => setView(v as UView)} title={titles[view][0]} sub={titles[view][1]}>
-      {view === 'pos' && <Pos showSlips={setSlipNo} />}
-      {view === 'orders' && <Orders showSlips={setSlipNo} />}
-      {view === 'menu' && <MenuManager />}
-      {view === 'reports' && <Reports />}
-      {view === 'support' && <Support />}
-      {view === 'settings' && <SettingsView />}
-      {slipOrder && <SlipsModal order={slipOrder} onClose={() => setSlipNo(null)} />}
-    </Shell>
-  );
-}
+        <main className="page" style={{ maxWidth: 760, margin: '20px auto' }}>
+          {user.status === 'Pending' && (
+            <div className="card" style={{ padding: 24, marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'var(--warn-soft)', color: 'var(--warn)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 'bold' }}>
+                  ⏳
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: 18 }}>Account Awaiting Approval</h2>
+                  <p className="fine">Your cart is registered. Complete payment verification to unlock the POS.</p>
+                </div>
+              </div>
 
-/* ------------------------------- POS ------------------------------- */
-function CartRow({ l, onQty, onNote }: { l: Line; onQty: (d: number) => void; onNote: (v: string) => void }) {
-  const [open, setOpen] = useState(!!l.note);
-  return (
-    <div className="cline">
-      <div className="cline-top">
-        <div className="cline-name"><b>{l.name}</b><span className="muted">{num(l.price)} each</span></div>
-        <div className="step">
-          <button aria-label={'Remove one ' + l.name} onClick={() => onQty(-1)}><Icon n="minus" s={14} /></button>
-          <span>{l.qty}</span>
-          <button aria-label={'Add one ' + l.name} onClick={() => onQty(1)}><Icon n="plus" s={14} /></button>
-        </div>
-        <b className="cline-amt">{num(l.price * l.qty)}</b>
-      </div>
-      {open
-        ? <input className="in sm" aria-label={'Kitchen note for ' + l.name} placeholder="Note for the kitchen (e.g. no chillies)" value={l.note} onChange={e => onNote(e.target.value)} />
-        : <button className="link sm" onClick={() => setOpen(true)}>Add kitchen note</button>}
-    </div>
-  );
-}
+              <div style={{ background: 'var(--surface-2)', padding: 16, borderRadius: 'var(--r)', marginBottom: 20, borderLeft: '4px solid var(--accent)' }}>
+                <h4 style={{ margin: '0 0 6px' }}>Payment Instructions (Subscription: Rs. 500)</h4>
+                <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
+                  {payInstructions || 'Please transfer Rs. 500 to JazzCash/EasyPaisa (0300-1234567, Title: Byte NCo POS) and submit your Transaction Reference ID below.'}
+                </p>
+              </div>
 
-function Pos({ showSlips }: { showSlips: (no: number) => void }) {
-  const { S, setS, toast, print } = useApp();
-  const [cat, setCat] = useState('All');
-  const [q, setQ] = useState('');
-  const [cart, setCart] = useState<Line[]>([]);
-  const [type, setType] = useState<OrderType>('dine-in');
-  const [table, setTable] = useState('T1');
-  const [customer, setCustomer] = useState('');
-  const [disc, setDisc] = useState(0);
-  const [pay, setPay] = useState(false);
-  const [mobileTab, setMobileTab] = useState<'menu' | 'bill'>('menu');
-  const readOnly = S.maint === 'readonly';
-  const dpct = S.flags.discount ? disc : 0;
-  const T = calc(cart, dpct, type, S.settings);
-  const cartQty = cart.reduce((a, l) => a + l.qty, 0);
-  const items = S.menu.filter(m => (cat === 'All' || m.cat === cat) && m.name.toLowerCase().includes(q.trim().toLowerCase()));
-  const busy = (t: string) => S.orders.some(o => o.type === 'dine-in' && o.table === t && (o.status !== 'served' || !o.paid));
-  const typeOpts: [OrderType, string][] = [['dine-in', 'Dine-in'], ['takeaway', 'Takeaway']];
-  if (S.flags.delivery) typeOpts.push(['delivery', 'Delivery']);
-
-  const add = (m: MenuItem) => {
-    if (!m.available) return;
-    setCart(c => c.find(l => l.id === m.id)
-      ? c.map(l => (l.id === m.id ? { ...l, qty: l.qty + 1 } : l))
-      : [...c, { id: m.id, name: m.name, price: m.price, qty: 1, note: '' }]);
-  };
-  const qty = (id: string, d: number) => setCart(c => c.map(l => (l.id === id ? { ...l, qty: l.qty + d } : l)).filter(l => l.qty > 0));
-  const note = (id: string, v: string) => setCart(c => c.map(l => (l.id === id ? { ...l, note: v } : l)));
-
-  const create = (info?: Pay): Order => {
-    const o: Order = {
-      no: S.nextNo, type, table: type === 'dine-in' ? table : '', customer: customer.trim(), lines: cart,
-      discountPct: dpct, taxPct: S.settings.tax, svcPct: S.settings.service, ...T,
-      status: 'new', paid: !!info, pay: info, at: Date.now(), cashier: S.session ? S.session.name : 'Cashier',
-    };
-    api.createOrder(o);
-    setS(s => ({ ...s, orders: [o, ...s.orders], nextNo: s.nextNo + 1 }));
-    setCart([]); setCustomer(''); setDisc(0);
-    setMobileTab('menu');
-    return o;
-  };
-  const sendKitchen = () => {
-    const o = create();
-    showSlips(o.no);
-    if (S.settings.autoPrint) void print(o, 'kitchen', 'Order #' + o.no + ' sent to the kitchen and printed');
-    else toast('Order #' + o.no + ' sent to the kitchen');
-  };
-
-  return (
-    <div className={'pos' + (mobileTab === 'bill' ? ' show-bill' : ' show-menu')}>
-      <div className="pos-mobile-nav">
-        <button
-          type="button"
-          className={'pmn-btn' + (mobileTab === 'menu' ? ' on' : '')}
-          onClick={() => setMobileTab('menu')}
-        >
-          <Icon n="book" s={15} />
-          <span>Menu ({items.length})</span>
-        </button>
-        <button
-          type="button"
-          className={'pmn-btn' + (mobileTab === 'bill' ? ' on' : '')}
-          onClick={() => setMobileTab('bill')}
-        >
-          <Icon n="receipt" s={15} />
-          <span>Bill {cartQty > 0 ? `(${money(T.total)})` : ''}</span>
-          {cartQty > 0 && <i className="pmn-badge">{cartQty}</i>}
-        </button>
-      </div>
-
-      <section className="pos-menu">
-        <div className="pos-tools">
-          <label className="search"><Icon n="search" /><input id="item-search" type="search" placeholder="Search menu" value={q} onChange={e => setQ(e.target.value)} /></label>
-          <div className="chips">
-            {['All', ...CATS].map(c => <button key={c} className={'chip' + (cat === c ? ' on' : '')} onClick={() => setCat(c)}>{c}</button>)}
-          </div>
-        </div>
-        <div className="tiles">
-          {items.map(m => {
-            const n = cart.find(l => l.id === m.id)?.qty || 0;
-            return (
-              <button key={m.id} className={'tile' + (n ? ' has' : '')} disabled={!m.available} onClick={() => add(m)}>
-                <span className="tile-cat">{m.cat}</span>
-                <span className="tile-name">{m.name}</span>
-                <span className="tile-price">{num(m.price)}</span>
-                {n > 0 && <span className="tile-qty">{n}</span>}
-                {!m.available && <span className="tile-off">Sold out</span>}
-              </button>
-            );
-          })}
-          {items.length === 0 && <p className="empty">No menu items match "{q}".</p>}
-        </div>
-
-        {cartQty > 0 && mobileTab === 'menu' && (
-          <div className="mobile-cart-float" onClick={() => setMobileTab('bill')}>
-            <div className="mcf-left">
-              <span className="mcf-count">{cartQty} {cartQty === 1 ? 'item' : 'items'}</span>
-              <span className="mcf-total">{money(T.total)}</span>
+              <form onSubmit={handlePaymentSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div>
+                  <label className="label">Payment Method Used</label>
+                  <select
+                    className="input"
+                    value={paySubmitMethod}
+                    onChange={e => setPaySubmitMethod(e.target.value)}
+                  >
+                    <option value="JazzCash">JazzCash</option>
+                    <option value="EasyPaisa">EasyPaisa</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Amount Paid (PKR)</label>
+                  <input
+                    className="input"
+                    type="number"
+                    value={payAmount}
+                    onChange={e => setPayAmount(e.target.value)}
+                    required
+                  />
+                </div>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <label className="label">Transaction Reference / TID Number</label>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="e.g. TID-9876543210"
+                    value={payRef}
+                    onChange={e => setPayRef(e.target.value)}
+                    required
+                  />
+                </div>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <button className="btn primary wide" type="submit" disabled={submittingPayment}>
+                    {submittingPayment ? 'Submitting...' : 'Submit Payment Reference for Admin Review'}
+                  </button>
+                </div>
+              </form>
             </div>
-            <div className="mcf-right">
-              <span>View Bill & Pay</span>
-              <Icon n="receipt" s={16} />
+          )}
+
+          {user.status === 'Rejected' && (
+            <div className="card" style={{ padding: 24, marginBottom: 20, borderLeft: '4px solid var(--bad)' }}>
+              <h2 style={{ margin: '0 0 8px', color: 'var(--bad)' }}>Application / Payment Rejected</h2>
+              <p className="fine" style={{ marginBottom: 16 }}>
+                Byte NCo administration reviewed your submission and marked it Rejected.
+              </p>
+              <div style={{ background: 'var(--bad-soft)', color: 'var(--bad)', padding: 12, borderRadius: 'var(--r)', marginBottom: 20 }}>
+                <strong>Rejection Reason:</strong> {paymentSubmissions[0]?.RejectionReason || 'Invalid payment reference or unverified deposit.'}
+              </div>
+              <h4>Resubmit Payment Details:</h4>
+              <form onSubmit={handlePaymentSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div>
+                  <label className="label">Payment Method</label>
+                  <select className="input" value={paySubmitMethod} onChange={e => setPaySubmitMethod(e.target.value)}>
+                    <option value="JazzCash">JazzCash</option>
+                    <option value="EasyPaisa">EasyPaisa</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Amount (PKR)</label>
+                  <input className="input" type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} required />
+                </div>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <label className="label">Correct Transaction Reference / TID</label>
+                  <input className="input" type="text" placeholder="Correct TID" value={payRef} onChange={e => setPayRef(e.target.value)} required />
+                </div>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <button className="btn primary wide" type="submit" disabled={submittingPayment}>
+                    Resubmit for Review
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {user.status === 'Blocked' && (
+            <div className="card" style={{ padding: 24, textAlign: 'center', borderLeft: '4px solid var(--bad)' }}>
+              <h2 style={{ color: 'var(--bad)', marginTop: 0 }}>Account Suspended</h2>
+              <p>Your cart account has been suspended by Byte NCo Administration. All POS and selling features are locked.</p>
+              <p className="fine">Please contact Byte NCo Support for resolution.</p>
+            </div>
+          )}
+
+          {/* Submissions History */}
+          {paymentSubmissions.length > 0 && (
+            <div className="card" style={{ padding: 18 }}>
+              <h4 style={{ margin: '0 0 12px' }}>Your Payment Submissions</h4>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Method</th>
+                    <th>Reference</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paymentSubmissions.map(sub => (
+                    <tr key={sub.PaymentID}>
+                      <td>{fmtDateTime(sub.CreatedAt)}</td>
+                      <td>{sub.PaymentMethod}</td>
+                      <td className="mono">{sub.Reference}</td>
+                      <td>{fmtPkr(sub.Amount)}</td>
+                      <td>
+                        <span className={`pill ${sub.Status === 'Approved' ? 'good' : sub.Status === 'Pending' ? 'warn' : 'bad'}`}>
+                          {sub.Status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  // ----------------------------------------------------
+  // 3. BYTE NCO ADMIN WORKSPACE
+  // ----------------------------------------------------
+  if (user.role === 'admin') {
+    return (
+      <div className="shell">
+        <header className="topbar">
+          <div>
+            <h1>Byte NCo <span style={{ color: 'var(--adm)' }}>Admin Portal</span></h1>
+            <p className="fine">Signed in as: {user.email || user.ownerName} &bull; System Administration</p>
+          </div>
+          <div className="top-actions">
+            <span className="pill good">Role: Administrator</span>
+            <button className="btn ghost sm" onClick={fetchAdminData}>Refresh</button>
+            <button className="btn ghost sm" onClick={handleLogout}>Logout</button>
+          </div>
+        </header>
+
+        <div className="rail" style={{ background: 'var(--rail-adm)' }}>
+          <div className="rail-head">
+            <div className="logo-badge" style={{ background: 'var(--adm)' }}>BN</div>
+            <div className="logo-text">
+              <strong>Admin Panel</strong>
+              <small>Review & Audit</small>
+            </div>
+          </div>
+          <nav className="rail-nav">
+            <button
+              className={`nav-btn ${adminActiveTab === 'owners' ? 'active' : ''}`}
+              onClick={() => setAdminActiveTab('owners')}
+            >
+              <span>Cart Owners & Payments</span>
+              {adminStats && adminStats.pendingPayments > 0 && (
+                <span className="badge">{adminStats.pendingPayments}</span>
+              )}
+            </button>
+            <button
+              className={`nav-btn ${adminActiveTab === 'audit' ? 'active' : ''}`}
+              onClick={() => setAdminActiveTab('audit')}
+            >
+              <span>Audit Logs</span>
+            </button>
+          </nav>
+        </div>
+
+        <main className="work page">
+          {/* Top KPI row */}
+          {adminStats && (
+            <div className="kpis" style={{ marginBottom: 20 }}>
+              <div className="kpi">
+                <span className="kpi-l">Pending Approvals</span>
+                <span className="kpi-v" style={{ color: adminStats.owners.Pending > 0 ? 'var(--warn)' : 'inherit' }}>
+                  {adminStats.owners.Pending}
+                </span>
+                <span className="fine">{adminStats.pendingPayments} payments awaiting review</span>
+              </div>
+              <div className="kpi">
+                <span className="kpi-l">Approved Owners</span>
+                <span className="kpi-v" style={{ color: 'var(--good)' }}>{adminStats.owners.Approved}</span>
+                <span className="fine">Active carts in operation</span>
+              </div>
+              <div className="kpi">
+                <span className="kpi-l">Rejected / Blocked</span>
+                <span className="kpi-v" style={{ color: 'var(--bad)' }}>
+                  {adminStats.owners.Rejected + adminStats.owners.Blocked}
+                </span>
+                <span className="fine">{adminStats.owners.Blocked} currently blocked</span>
+              </div>
+              <div className="kpi">
+                <span className="kpi-l">Total Platform Sales</span>
+                <span className="kpi-v">{fmtPkr(adminStats.totalPlatformSales)}</span>
+                <span className="fine">{adminStats.totalPlatformOrders} lifetime orders</span>
+              </div>
+            </div>
+          )}
+
+          {adminActiveTab === 'owners' && (
+            <div className="card" style={{ padding: 18 }}>
+              {/* Filter bar */}
+              <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {['all', 'Pending', 'Approved', 'Rejected', 'Blocked'].map(st => (
+                    <button
+                      key={st}
+                      className={`btn sm ${adminStatusFilter === st ? 'primary' : 'ghost'}`}
+                      onClick={() => {
+                        setAdminStatusFilter(st);
+                        api.getAdminOwners(st, adminSearch).then(setAdminOwners);
+                      }}
+                    >
+                      {st.charAt(0).toUpperCase() + st.slice(1)}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <input
+                    className="input sm"
+                    placeholder="Search by owner name, cart name, mobile..."
+                    value={adminSearch}
+                    onChange={e => {
+                      setAdminSearch(e.target.value);
+                      api.getAdminOwners(adminStatusFilter, e.target.value).then(setAdminOwners);
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Owners Table */}
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Cart & Owner</th>
+                    <th>City & Mobile</th>
+                    <th>Status</th>
+                    <th>Latest Payment</th>
+                    <th>Orders</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adminOwners.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: 'var(--muted)' }}>
+                        No cart owners found matching this filter.
+                      </td>
+                    </tr>
+                  ) : (
+                    adminOwners.map(o => (
+                      <tr key={o.UserID}>
+                        <td>
+                          <strong>{o.CartName}</strong>
+                          <div className="fine">{o.OwnerName}</div>
+                        </td>
+                        <td>
+                          <div>{o.City}</div>
+                          <div className="fine mono">{o.Mobile}</div>
+                        </td>
+                        <td>
+                          <span className={`pill ${o.Status === 'Approved' ? 'good' : o.Status === 'Pending' ? 'warn' : 'bad'}`}>
+                            {o.Status}
+                          </span>
+                        </td>
+                        <td>
+                          {o.LastPaymentRef ? (
+                            <div>
+                              <span className="mono">{o.LastPaymentRef}</span>
+                              <div className="fine">{fmtPkr(o.LastPaymentAmount)} ({o.LastPaymentMethod})</div>
+                            </div>
+                          ) : (
+                            <span className="muted">No payment submitted</span>
+                          )}
+                        </td>
+                        <td>
+                          <strong>{o.OrdersCount || 0}</strong>
+                          <div className="fine">{fmtPkr(o.TotalSales || 0)}</div>
+                        </td>
+                        <td>
+                          <button
+                            className="btn sm"
+                            onClick={() => {
+                              setAdminSelectedOwner(o);
+                              setAdminRejectReason('');
+                              setAdminBlockReason('');
+                            }}
+                          >
+                            Review
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {adminActiveTab === 'audit' && (
+            <div className="card" style={{ padding: 18 }}>
+              <h3 style={{ margin: '0 0 14px' }}>System & Admin Audit Logs</h3>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Timestamp (Asia/Karachi)</th>
+                    <th>Action</th>
+                    <th>Admin / Actor</th>
+                    <th>Target Owner</th>
+                    <th>Details / Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adminAuditLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} style={{ textAlign: 'center', padding: 24, color: 'var(--muted)' }}>
+                        No audit logs recorded yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    adminAuditLogs.map(log => (
+                      <tr key={log.LogID}>
+                        <td className="mono">{fmtDateTime(log.CreatedAt)}</td>
+                        <td>
+                          <span className="pill neutral">{log.Action}</span>
+                        </td>
+                        <td>{log.AdminName || 'System'}</td>
+                        <td>{log.OwnerName ? `${log.OwnerName} (${log.CartName})` : '-'}</td>
+                        <td className="fine">{log.Details || log.Reason || '-'}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </main>
+
+        {/* Admin Review Owner Modal */}
+        {adminSelectedOwner && (
+          <div className="scrim" onClick={() => setAdminSelectedOwner(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 540 }}>
+              <div className="modal-h">
+                <h3>Review Cart Owner: {adminSelectedOwner.CartName}</h3>
+                <button className="btn ghost sm" onClick={() => setAdminSelectedOwner(null)}>✕</button>
+              </div>
+              <div className="modal-b">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+                  <div>
+                    <span className="label">Owner Name:</span>
+                    <strong>{adminSelectedOwner.OwnerName}</strong>
+                  </div>
+                  <div>
+                    <span className="label">Mobile:</span>
+                    <strong className="mono">{adminSelectedOwner.Mobile}</strong>
+                  </div>
+                  <div>
+                    <span className="label">City:</span>
+                    <strong>{adminSelectedOwner.City}</strong>
+                  </div>
+                  <div>
+                    <span className="label">Current Status:</span>
+                    <span className={`pill ${adminSelectedOwner.Status === 'Approved' ? 'good' : adminSelectedOwner.Status === 'Pending' ? 'warn' : 'bad'}`}>
+                      {adminSelectedOwner.Status}
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ background: 'var(--surface-2)', padding: 12, borderRadius: 'var(--r)', marginBottom: 16 }}>
+                  <h4 style={{ margin: '0 0 8px' }}>Latest Payment Submission</h4>
+                  {adminSelectedOwner.LastPaymentRef ? (
+                    <div>
+                      <p style={{ margin: '0 0 4px' }}>
+                        <strong>Reference ID:</strong> <span className="mono">{adminSelectedOwner.LastPaymentRef}</span>
+                      </p>
+                      <p style={{ margin: '0 0 4px' }}>
+                        <strong>Amount:</strong> {fmtPkr(adminSelectedOwner.LastPaymentAmount)} &bull; <strong>Method:</strong> {adminSelectedOwner.LastPaymentMethod}
+                      </p>
+                      <p style={{ margin: 0, fontSize: 12 }} className="muted">
+                        Submitted: {fmtDateTime(adminSelectedOwner.LastPaymentDate)} &bull; Status: {adminSelectedOwner.LastPaymentStatus}
+                      </p>
+                    </div>
+                  ) : (
+                    <p style={{ margin: 0, color: 'var(--muted)' }}>No payment record submitted yet.</p>
+                  )}
+                </div>
+
+                {/* Approve Button */}
+                {adminSelectedOwner.LastPaymentID && adminSelectedOwner.Status !== 'Approved' && (
+                  <div style={{ marginBottom: 14 }}>
+                    <button
+                      className="btn primary wide"
+                      disabled={adminActionLoading}
+                      onClick={async () => {
+                        setAdminActionLoading(true);
+                        try {
+                          await api.approvePayment(adminSelectedOwner.LastPaymentID);
+                          showToast('Owner approved successfully!');
+                          setAdminSelectedOwner(null);
+                          fetchAdminData();
+                        } catch (err: any) {
+                          showToast(err.message || 'Approval failed.');
+                        } finally {
+                          setAdminActionLoading(false);
+                        }
+                      }}
+                    >
+                      ✓ Approve Payment & Activate Cart Owner
+                    </button>
+                  </div>
+                )}
+
+                {/* Reject Section */}
+                {adminSelectedOwner.LastPaymentID && adminSelectedOwner.Status === 'Pending' && (
+                  <div style={{ marginBottom: 16, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+                    <label className="label">Rejection Reason (Required to Reject)</label>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input
+                        className="input sm"
+                        placeholder="e.g. Invalid TID / Deposit unverified"
+                        value={adminRejectReason}
+                        onChange={e => setAdminRejectReason(e.target.value)}
+                      />
+                      <button
+                        className="btn danger sm"
+                        disabled={!adminRejectReason.trim() || adminActionLoading}
+                        onClick={async () => {
+                          setAdminActionLoading(true);
+                          try {
+                            await api.rejectPayment(adminSelectedOwner.LastPaymentID, adminRejectReason.trim());
+                            showToast('Payment rejected.');
+                            setAdminSelectedOwner(null);
+                            fetchAdminData();
+                          } catch (err: any) {
+                            showToast(err.message || 'Rejection failed.');
+                          } finally {
+                            setAdminActionLoading(false);
+                          }
+                        }}
+                      >
+                        Reject Payment
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Block / Unblock Section */}
+                <div style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+                  {adminSelectedOwner.Status !== 'Blocked' ? (
+                    <div>
+                      <label className="label">Emergency Suspend / Block Cart</label>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <input
+                          className="input sm"
+                          placeholder="Reason for suspension"
+                          value={adminBlockReason}
+                          onChange={e => setAdminBlockReason(e.target.value)}
+                        />
+                        <button
+                          className="btn danger sm"
+                          disabled={adminActionLoading}
+                          onClick={async () => {
+                            setAdminActionLoading(true);
+                            try {
+                              await api.blockOwner(adminSelectedOwner.UserID, adminBlockReason.trim() || 'Suspended by admin');
+                              showToast('Owner blocked successfully.');
+                              setAdminSelectedOwner(null);
+                              fetchAdminData();
+                            } catch (err: any) {
+                              showToast(err.message || 'Block failed.');
+                            } finally {
+                              setAdminActionLoading(false);
+                            }
+                          }}
+                        >
+                          Block Owner
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <button
+                        className="btn primary sm"
+                        disabled={adminActionLoading}
+                        onClick={async () => {
+                          setAdminActionLoading(true);
+                          try {
+                            await api.unblockOwner(adminSelectedOwner.UserID);
+                            showToast('Owner unblocked.');
+                            setAdminSelectedOwner(null);
+                            fetchAdminData();
+                          } catch (err: any) {
+                            showToast(err.message || 'Unblock failed.');
+                          } finally {
+                            setAdminActionLoading(false);
+                          }
+                        }}
+                      >
+                        Unblock Owner & Restore POS Access
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
-      </section>
+      </div>
+    );
+  }
 
-      <aside className="bill">
-        <div className="bill-mobile-back">
-          <button type="button" className="btn sm ghost" onClick={() => setMobileTab('menu')}>
-            ← Back to Menu
+  // ----------------------------------------------------
+  // 4. CART OWNER APPROVED WORKSPACE
+  // ----------------------------------------------------
+  return (
+    <div className="shell">
+      {/* Top Header */}
+      <header className="topbar">
+        <div>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>{user.cartName}</span>
+            <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 12, background: 'var(--good-soft)', color: 'var(--good)', fontWeight: 600 }}>
+              Approved
+            </span>
+          </h1>
+          <p className="fine">Owner: {user.ownerName} &bull; {user.city} &bull; PKR (Asia/Karachi)</p>
+        </div>
+        <div className="top-actions">
+          <span className={`pill ${dbLive ? 'good' : 'warn'}`}>
+            {dbLive ? 'MSSQL DB' : 'Offline / Standalone'}
+          </span>
+          <button className="btn ghost sm" onClick={handleLogout}>
+            Logout
           </button>
         </div>
-        <div className="bill-h">
-          <div><h2>Current bill</h2><span className="muted">Order #{S.nextNo}</span></div>
-          {cart.length > 0 && <button className="link" onClick={() => setCart([])}>Clear</button>}
-        </div>
-        <Seg value={type} onChange={setType} options={typeOpts} />
-        {type === 'dine-in' && (
-          <div className="field">
-            <label>Table <span className="muted">(dot = occupied)</span></label>
-            <div className="tables">
-              {TABLES.map(t => <button key={t} className={'tbl' + (table === t ? ' on' : '') + (busy(t) ? ' busy' : '')} aria-pressed={table === t} onClick={() => setTable(t)}>{t.slice(1)}</button>)}
-            </div>
+      </header>
+
+      {/* Navigation Rail */}
+      <aside className="rail">
+        <div className="rail-head">
+          <div className="logo-badge">BN</div>
+          <div className="logo-text">
+            <strong>Byte NCo</strong>
+            <small>Simple POS</small>
           </div>
-        )}
-        <div className="field">
-          <label htmlFor="cust">{type === 'delivery' ? 'Customer name and phone' : 'Customer name (optional)'}</label>
-          <input id="cust" className="in" value={customer} onChange={e => setCustomer(e.target.value)} />
         </div>
-        <div className="lines">
-          {cart.length === 0
-            ? <div className="empty-bill"><Icon n="receipt" s={28} /><p>Tap menu items to start a bill.</p></div>
-            : cart.map(l => <CartRow key={l.id} l={l} onQty={d => qty(l.id, d)} onNote={v => note(l.id, v)} />)}
-        </div>
-        <dl className="totals">
-          <div><dt>Subtotal</dt><dd>{num(T.sub)}</dd></div>
-          {S.flags.discount && (
-            <div><dt>Discount <select id="disc" aria-label="Discount percent" value={disc} onChange={e => setDisc(Number(e.target.value))}>{[0, 5, 10, 15, 20].map(p => <option key={p} value={p}>{p}%</option>)}</select></dt><dd>{T.discount ? '-' + num(T.discount) : '0'}</dd></div>
-          )}
-          {T.service > 0 && <div><dt>Service charge ({S.settings.service}%)</dt><dd>{num(T.service)}</dd></div>}
-          <div><dt>Sales tax ({S.settings.tax}%)</dt><dd>{num(T.tax)}</dd></div>
-          <div className="grand"><dt>Total</dt><dd>{money(T.total)}</dd></div>
-        </dl>
-        <div className="bill-actions">
-          <button className="btn" disabled={!cart.length || readOnly} onClick={sendKitchen}>Send to kitchen</button>
-          <button className="btn primary" disabled={!cart.length || readOnly} onClick={() => setPay(true)}>Charge {money(T.total)}</button>
-        </div>
-        {readOnly && <p className="note-warn">Maintenance mode is on. New orders and payments are paused.</p>}
+        <nav className="rail-nav">
+          <button
+            className={`nav-btn ${activeTab === 'pos' ? 'active' : ''}`}
+            onClick={() => setActiveTab('pos')}
+          >
+            <span>POS Register</span>
+            {cartItemCount > 0 && <span className="badge">{cartItemCount}</span>}
+          </button>
+          <button
+            className={`nav-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
+            onClick={() => setActiveTab('dashboard')}
+          >
+            <span>Today's Sales</span>
+          </button>
+          <button
+            className={`nav-btn ${activeTab === 'products' ? 'active' : ''}`}
+            onClick={() => setActiveTab('products')}
+          >
+            <span>Products</span>
+          </button>
+          <button
+            className={`nav-btn ${activeTab === 'orders' ? 'active' : ''}`}
+            onClick={() => setActiveTab('orders')}
+          >
+            <span>Orders & Receipts</span>
+          </button>
+          <button
+            className={`nav-btn ${activeTab === 'status' ? 'active' : ''}`}
+            onClick={() => setActiveTab('status')}
+          >
+            <span>My Account</span>
+          </button>
+        </nav>
       </aside>
 
-      {pay && (
-        <PaymentModal
-          amount={T.total}
-          label={'Order #' + S.nextNo + ' · ' + (type === 'dine-in' ? 'Table ' + table.slice(1) : cap(type))}
-          onClose={() => setPay(false)}
-          onPaid={info => {
-            const o = create(info);
-            setPay(false);
-            showSlips(o.no);
-            if (S.settings.autoPrint) void print(o, 'both', 'Payment received for #' + o.no + '. Slips printed');
-            else toast('Payment received for #' + o.no);
-          }}
-        />
-      )}
-    </div>
-  );
-}
+      {/* Main Workspace Area */}
+      <main className="work">
+        {/* TAB 1: POS REGISTER */}
+        {activeTab === 'pos' && (
+          <div className="page" style={{ height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
+            {/* Mobile Tab Switcher for POS */}
+            <div className="pos-mobile-tabs hide-desktop" style={{ display: 'none', marginBottom: 12 }}>
+              <button
+                className={`tab ${mobilePosTab === 'menu' ? 'active' : ''}`}
+                style={{ flex: 1 }}
+                onClick={() => setMobilePosTab('menu')}
+              >
+                Products
+              </button>
+              <button
+                className={`tab ${mobilePosTab === 'cart' ? 'active' : ''}`}
+                style={{ flex: 1 }}
+                onClick={() => setMobilePosTab('cart')}
+              >
+                Cart ({cartItemCount}) &bull; {fmtPkr(cartTotal)}
+              </button>
+            </div>
 
-/* --------------------------- payment modal --------------------------- */
-function PaymentModal({ amount, label, onClose, onPaid }: { amount: number; label: string; onClose: () => void; onPaid: (p: Pay) => void }) {
-  const { S } = useApp();
-  const online = useOnline();
-  const [m, setM] = useState<Method>('cash');
-  const [tendered, setTendered] = useState('');
-  const [card, setCard] = useState({ name: '', number: '', expiry: '', cvc: '' });
-  const [phone, setPhone] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const due = amount;
-  const tn = Number(tendered) || 0;
-  const quick = Array.from(new Set([due, Math.ceil(due / 500) * 500, Math.ceil(due / 1000) * 1000, Math.ceil((due + 1) / 5000) * 5000])).sort((a, b) => a - b);
-  const methods: [Method, string, string][] = [['cash', 'Cash', 'cash'], ['card', 'Card', 'card']];
-  if (S.flags.wallet) methods.push(['wallet', 'Mobile wallet', 'wallet']);
+            <div className="two" style={{ height: '100%' }}>
+              {/* Left Column: Product Grid */}
+              <div className="col" style={{ overflowY: 'auto', paddingRight: 8 }}>
+                {products.length === 0 ? (
+                  <div className="card" style={{ padding: 40, textAlign: 'center', marginTop: 20 }}>
+                    <div style={{ fontSize: 44, marginBottom: 12 }}>🛒</div>
+                    <h3 style={{ margin: '0 0 8px' }}>Add Product First</h3>
+                    <p className="muted" style={{ maxWidth: 360, margin: '0 auto 20px' }}>
+                      Your catalog is currently empty. You must add at least one product before taking customer orders.
+                    </p>
+                    <button
+                      className="btn primary"
+                      onClick={() => {
+                        setActiveTab('products');
+                        setShowAddProdModal(true);
+                      }}
+                    >
+                      + Add First Product
+                    </button>
+                  </div>
+                ) : (
+                  <div className="tiles">
+                    {products.map(p => (
+                      <button
+                        key={p.ProductID}
+                        className="tile"
+                        onClick={() => addToCart(p)}
+                        style={{ position: 'relative' }}
+                      >
+                        <div className="tile-name">{p.ProductName}</div>
+                        <div className="tile-price">{fmtPkr(p.Price)}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-  const run = async (req: PayReq) => {
-    setBusy(true); setErr('');
-    const res = await sandbox.charge(req);
-    setBusy(false);
-    if (res.ok) onPaid({ method: req.method, ref: res.ref, last4: res.last4 });
-    else setErr(res.error || 'Payment failed.');
-  };
-  const payCard = () => {
-    const n = card.number.replace(/\s/g, '');
-    if (!card.name.trim()) return setErr('Enter the name on the card.');
-    if (n.length < 13 || n.length > 19) return setErr('Enter the full card number.');
-    const parts = card.expiry.split('/');
-    const mi = Number(parts[0]); const yy = parts[1] || '';
-    if (!(mi >= 1 && mi <= 12) || yy.length !== 2) return setErr('Enter the expiry as MM/YY.');
-    if (new Date(2000 + Number(yy), mi, 1).getTime() <= Date.now()) return setErr('This card has expired.');
-    if (!/^\d{3,4}$/.test(card.cvc)) return setErr('Enter the 3 or 4 digit security code.');
-    return run({ amount: due, method: 'card', card });
-  };
-  const payWallet = () => {
-    if (!/^03\d{9}$/.test(phone.replace(/\D/g, ''))) return setErr('Enter an 11 digit mobile number starting with 03.');
-    return run({ amount: due, method: 'wallet', wallet: { phone: phone.replace(/\D/g, '') } });
-  };
-  const fmtCard = (v: string) => v.replace(/\D/g, '').slice(0, 16).replace(/(.{4})/g, '$1 ').trim();
-  const fmtExp = (v: string) => { const d = v.replace(/\D/g, '').slice(0, 4); return d.length > 2 ? d.slice(0, 2) + '/' + d.slice(2) : d; };
+              {/* Right Column: Cart Drawer */}
+              <div className="col" style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--surface)', borderRadius: 'var(--r)', border: '1px solid var(--line)' }}>
+                <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h3 style={{ margin: 0 }}>Current Order</h3>
+                  <span className="fine muted">{cartItemCount} items</span>
+                </div>
 
-  return (
-    <Modal title="Take payment" sub={label} onClose={busy ? () => undefined : onClose}>
-      <div className="pay-amt"><span>Amount due</span><b>{money(due)}</b></div>
-      <div className="paytabs" role="tablist">
-        {methods.map(x => (
-          <button key={x[0]} role="tab" aria-selected={m === x[0]} className={m === x[0] ? 'on' : ''} disabled={busy || (!online && x[0] !== 'cash')} onClick={() => { setM(x[0]); setErr(''); }}>
-            <Icon n={x[2]} />{x[1]}
-          </button>
-        ))}
-      </div>
-      {!online && <div className="hint">No internet. Card and wallet need the payment gateway, so only cash works until the connection returns.</div>}
-      {m === 'cash' && (
-        <div className="pay-body">
-          <div className="field"><label htmlFor="tend">Cash received</label>
-            <input id="tend" className="in big" inputMode="numeric" value={tendered} onChange={e => setTendered(e.target.value.replace(/\D/g, ''))} placeholder={String(due)} /></div>
-          <div className="chips">{quick.map(v => <button key={v} className="chip" onClick={() => setTendered(String(v))}>{v === due ? 'Exact' : num(v)}</button>)}</div>
-          <div className={'change' + (tn >= due ? ' ok' : '')}><span>{tn >= due ? 'Change to return' : 'Short by'}</span><b>{money(Math.abs(tn - due))}</b></div>
-          <button className="btn primary wide" disabled={tn < due} onClick={() => onPaid({ method: 'cash', tendered: tn, change: tn - due })}>Confirm cash payment</button>
-        </div>
-      )}
-      {m === 'card' && (
-        <div className="pay-body">
-          <div className="hint">Sandbox gateway. Approved test card: 4242 4242 4242 4242, any future expiry, any code. 4000 0000 0000 0002 simulates a decline.</div>
-          <div className="field"><label htmlFor="cn">Name on card</label><input id="cn" className="in" value={card.name} onChange={e => setCard({ ...card, name: e.target.value })} autoComplete="off" /></div>
-          <div className="field"><label htmlFor="cc">Card number</label><input id="cc" className="in mono" inputMode="numeric" placeholder="0000 0000 0000 0000" value={card.number} onChange={e => setCard({ ...card, number: fmtCard(e.target.value) })} autoComplete="off" /></div>
-          <div className="two">
-            <div className="field"><label htmlFor="ce">Expiry</label><input id="ce" className="in mono" inputMode="numeric" placeholder="MM/YY" value={card.expiry} onChange={e => setCard({ ...card, expiry: fmtExp(e.target.value) })} autoComplete="off" /></div>
-            <div className="field"><label htmlFor="cv">Security code</label><input id="cv" className="in mono" inputMode="numeric" placeholder="123" maxLength={4} value={card.cvc} onChange={e => setCard({ ...card, cvc: e.target.value.replace(/\D/g, '') })} autoComplete="off" /></div>
+                {checkoutError && (
+                  <div className="alert bad" style={{ margin: 12, padding: 8 }}>
+                    {checkoutError}
+                  </div>
+                )}
+
+                {/* Cart Items List */}
+                <div style={{ flex: 1, overflowY: 'auto', padding: '10px 14px' }}>
+                  {cart.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '40px 10px', color: 'var(--muted)' }}>
+                      <p style={{ margin: 0, fontWeight: 500 }}>Cart is empty</p>
+                      <p className="fine">Tap any product on the left to add items.</p>
+                    </div>
+                  ) : (
+                    cart.map(item => (
+                      <div
+                        key={item.product.ProductID}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '10px 0',
+                          borderBottom: '1px solid var(--line)',
+                        }}
+                      >
+                        <div style={{ flex: 1, paddingRight: 8 }}>
+                          <div style={{ fontWeight: 600 }}>{item.product.ProductName}</div>
+                          <div className="fine muted">{fmtPkr(item.product.Price)} each</div>
+                        </div>
+
+                        {/* Qty Controls */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <button
+                            className="btn ghost sm"
+                            style={{ width: 28, height: 28, padding: 0 }}
+                            onClick={() => updateCartQty(item.product.ProductID, -1)}
+                          >
+                            -
+                          </button>
+                          <span style={{ fontWeight: 700, minWidth: 20, textAlign: 'center' }}>
+                            {item.qty}
+                          </span>
+                          <button
+                            className="btn ghost sm"
+                            style={{ width: 28, height: 28, padding: 0 }}
+                            onClick={() => updateCartQty(item.product.ProductID, 1)}
+                          >
+                            +
+                          </button>
+                        </div>
+
+                        <div style={{ minWidth: 70, textAlign: 'right', fontWeight: 700 }}>
+                          {fmtPkr(item.product.Price * item.qty)}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Cart Footer & Checkout Action */}
+                <div style={{ padding: '14px 18px', borderTop: '1px solid var(--line)', background: 'var(--surface-2)' }}>
+                  {/* Payment Method Selector */}
+                  <label className="label" style={{ marginBottom: 6 }}>Payment Method</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 14 }}>
+                    {(['Cash', 'JazzCash', 'EasyPaisa'] as const).map(m => (
+                      <button
+                        key={m}
+                        type="button"
+                        className={`btn sm ${payMethod === m ? 'primary' : 'ghost'}`}
+                        onClick={() => setPayMethod(m)}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Grand Total */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+                    <span style={{ fontSize: 15, fontWeight: 600 }}>Grand Total</span>
+                    <span style={{ fontSize: 24, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--f-display)' }}>
+                      {fmtPkr(cartTotal)}
+                    </span>
+                  </div>
+
+                  <button
+                    className="btn primary wide"
+                    disabled={cart.length === 0 || isCheckingOut}
+                    onClick={handleCheckout}
+                    style={{ height: 48, fontSize: 16 }}
+                  >
+                    {isCheckingOut ? 'Recording Sale...' : `COMPLETE SALE (${fmtPkr(cartTotal)})`}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
-          <button className="btn primary wide" disabled={busy} onClick={payCard}>{busy ? 'Contacting gateway…' : 'Pay ' + money(due)}</button>
+        )}
+
+        {/* TAB 2: TODAY'S DASHBOARD */}
+        {activeTab === 'dashboard' && (
+          <div className="page">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+              <div>
+                <h2>Today's Performance</h2>
+                <p className="fine">Business Day: {metrics?.date || 'Today'} &bull; Timezone: Asia/Karachi (PKR)</p>
+              </div>
+              <button className="btn sm ghost" onClick={() => api.getTodayMetrics().then(setMetrics)}>
+                Refresh Metrics
+              </button>
+            </div>
+
+            <div className="kpis" style={{ marginBottom: 24 }}>
+              <div className="kpi">
+                <span className="kpi-l">Today's Total Sales</span>
+                <span className="kpi-v" style={{ color: 'var(--accent)' }}>
+                  {fmtPkr(metrics?.todayTotalSales || 0)}
+                </span>
+                <span className="fine">All completed orders today</span>
+              </div>
+              <div className="kpi">
+                <span className="kpi-l">Today's Orders</span>
+                <span className="kpi-v">{metrics?.todayOrdersCount || 0}</span>
+                <span className="fine">Sales count today</span>
+              </div>
+              <div className="kpi">
+                <span className="kpi-l">Today's Cash Only</span>
+                <span className="kpi-v" style={{ color: 'var(--good)' }}>
+                  {fmtPkr(metrics?.todayCashSales || 0)}
+                </span>
+                <span className="fine">Cash in hand</span>
+              </div>
+              <div className="kpi">
+                <span className="kpi-l">Mobile Wallets</span>
+                <span className="kpi-v" style={{ fontSize: 18, marginTop: 4 }}>
+                  JazzCash: {fmtPkr(metrics?.todayJazzCashSales || 0)}
+                </span>
+                <span className="fine">EasyPaisa: {fmtPkr(metrics?.todayEasyPaisaSales || 0)}</span>
+              </div>
+            </div>
+
+            {/* Truthful Empty State if no sales today */}
+            {(!metrics || metrics.todayOrdersCount === 0) && (
+              <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
+                <div style={{ fontSize: 36, marginBottom: 10 }}>📊</div>
+                <h4 style={{ margin: '0 0 6px', color: 'var(--ink)' }}>No sales recorded yet today</h4>
+                <p className="fine" style={{ maxWidth: 400, margin: '0 auto 16px' }}>
+                  Orders completed in the POS register will automatically compute your daily totals and cash reconciliation here.
+                </p>
+                <button className="btn primary sm" onClick={() => setActiveTab('pos')}>
+                  Go to POS Register
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 3: PRODUCTS MANAGEMENT */}
+        {activeTab === 'products' && (
+          <div className="page">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+              <div>
+                <h2>Product Catalogue</h2>
+                <p className="fine">Manage your food cart menu items and prices</p>
+              </div>
+              <button className="btn primary sm" onClick={() => setShowAddProdModal(true)}>
+                + Add Product
+              </button>
+            </div>
+
+            {products.length === 0 ? (
+              <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
+                <div style={{ fontSize: 36, marginBottom: 10 }}>🥘</div>
+                <h3 style={{ margin: '0 0 6px', color: 'var(--ink)' }}>No Products Added Yet</h3>
+                <p className="fine" style={{ maxWidth: 360, margin: '0 auto 16px' }}>
+                  Create your first product (e.g. Biryani, Bun Kabab, Chai, Roll) to start billing on your cart.
+                </p>
+                <button className="btn primary" onClick={() => setShowAddProdModal(true)}>
+                  + Add Product Now
+                </button>
+              </div>
+            ) : (
+              <div className="card" style={{ padding: 18 }}>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Product Name</th>
+                      <th>Price (PKR)</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {products.map(p => (
+                      <tr key={p.ProductID}>
+                        <td>
+                          <strong>{p.ProductName}</strong>
+                        </td>
+                        <td style={{ fontWeight: 600 }}>{fmtPkr(p.Price)}</td>
+                        <td>
+                          <span className={`pill ${p.IsActive ? 'good' : 'neutral'}`}>
+                            {p.IsActive ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                        <td>
+                          <button
+                            className="btn ghost sm"
+                            onClick={() => handleToggleProduct(p.ProductID)}
+                          >
+                            {p.IsActive ? 'Deactivate' : 'Activate'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 4: ORDERS & RECEIPTS */}
+        {activeTab === 'orders' && (
+          <div className="page">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+              <div>
+                <h2>Order History & Receipts</h2>
+                <p className="fine">Reprint customer or shop thermal slips</p>
+              </div>
+              <button className="btn ghost sm" onClick={() => api.getOrders().then(setOrders)}>
+                Refresh Orders
+              </button>
+            </div>
+
+            {orders.length === 0 ? (
+              <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
+                <div style={{ fontSize: 36, marginBottom: 10 }}>🧾</div>
+                <h3 style={{ margin: '0 0 6px', color: 'var(--ink)' }}>No Sales Yet</h3>
+                <p className="fine" style={{ maxWidth: 360, margin: '0 auto 16px' }}>
+                  Completed orders will appear here with instant thermal receipt reprint options.
+                </p>
+                <button className="btn primary sm" onClick={() => setActiveTab('pos')}>
+                  Start Selling in POS
+                </button>
+              </div>
+            ) : (
+              <div className="card" style={{ padding: 18 }}>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Order No</th>
+                      <th>Date & Time</th>
+                      <th>Payment Method</th>
+                      <th>Items</th>
+                      <th>Total</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orders.map(o => (
+                      <tr key={o.OrderID}>
+                        <td className="mono" style={{ fontWeight: 700 }}>{o.OrderNo}</td>
+                        <td>{fmtDateTime(o.OrderDate)}</td>
+                        <td>
+                          <span className="pill neutral">{o.PaymentMethod}</span>
+                        </td>
+                        <td>{o.TotalItems || '-'} items</td>
+                        <td style={{ fontWeight: 700 }}>{fmtPkr(o.TotalAmount)}</td>
+                        <td>
+                          <button
+                            className="btn sm"
+                            onClick={async () => {
+                              try {
+                                const detail = await api.getOrderDetail(o.OrderID);
+                                setReceiptOrder(detail);
+                                setReceiptCopy('customer');
+                              } catch (err: any) {
+                                showToast(err.message || 'Failed to load order receipt');
+                              }
+                            }}
+                          >
+                            Print Receipt
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 5: MY ACCOUNT / STATUS */}
+        {activeTab === 'status' && (
+          <div className="page" style={{ maxWidth: 640 }}>
+            <h2>Cart & Subscription Details</h2>
+            <div className="card" style={{ padding: 20, marginBottom: 18 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <span className="label">Cart Name</span>
+                  <strong>{user.cartName}</strong>
+                </div>
+                <div>
+                  <span className="label">Owner Name</span>
+                  <strong>{user.ownerName}</strong>
+                </div>
+                <div>
+                  <span className="label">Mobile Number</span>
+                  <strong className="mono">{user.mobile}</strong>
+                </div>
+                <div>
+                  <span className="label">City</span>
+                  <strong>{user.city}</strong>
+                </div>
+                <div>
+                  <span className="label">Account Status</span>
+                  <span className="pill good">Approved & Active</span>
+                </div>
+                <div>
+                  <span className="label">Platform Version</span>
+                  <strong>Byte NCo v1.0 (PKR)</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* MODAL: ADD PRODUCT */}
+      {showAddProdModal && (
+        <div className="scrim" onClick={() => setShowAddProdModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
+            <div className="modal-h">
+              <h3>Add New Product</h3>
+              <button className="btn ghost sm" onClick={() => setShowAddProdModal(false)}>✕</button>
+            </div>
+            <form onSubmit={handleCreateProduct}>
+              <div className="modal-b" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                  <label className="label">Product / Food Item Name</label>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="e.g. Chicken Biryani Half"
+                    value={newProdName}
+                    onChange={e => setNewProdName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="label">Price in PKR (e.g. 250)</label>
+                  <input
+                    className="input"
+                    type="number"
+                    step="0.01"
+                    min="1"
+                    placeholder="250"
+                    value={newProdPrice}
+                    onChange={e => setNewProdPrice(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="label">Image URL (Optional)</label>
+                  <input
+                    className="input"
+                    type="url"
+                    placeholder="https://..."
+                    value={newProdImg}
+                    onChange={e => setNewProdImg(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="modal-f">
+                <button type="button" className="btn ghost" onClick={() => setShowAddProdModal(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn primary" disabled={prodSubmitting}>
+                  {prodSubmitting ? 'Saving...' : 'Add to Menu'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
-      {m === 'wallet' && (
-        <div className="pay-body">
-          <div className="hint">Sends a payment request to the customer's wallet app. In the sandbox, any number works; one ending in 0000 is rejected.</div>
-          <div className="field"><label htmlFor="ph">Customer mobile number</label><input id="ph" className="in mono" inputMode="tel" placeholder="03XX XXXXXXX" value={phone} onChange={e => setPhone(e.target.value)} /></div>
-          <button className="btn primary wide" disabled={busy} onClick={payWallet}>{busy ? 'Waiting for approval…' : 'Request ' + money(due)}</button>
+
+      {/* MODAL: THERMAL RECEIPT SLIP & PRINT PREVIEW */}
+      {receiptOrder && (
+        <div className="scrim" onClick={() => setReceiptOrder(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+            <div className="modal-h no-print">
+              <h3>Thermal Receipt Preview</h3>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  className={`btn sm ${receiptWidth === '58mm' ? 'primary' : 'ghost'}`}
+                  onClick={() => setReceiptWidth('58mm')}
+                >
+                  58mm (2")
+                </button>
+                <button
+                  className={`btn sm ${receiptWidth === '80mm' ? 'primary' : 'ghost'}`}
+                  onClick={() => setReceiptWidth('80mm')}
+                >
+                  80mm (3")
+                </button>
+                <button className="btn ghost sm" onClick={() => setReceiptOrder(null)}>✕</button>
+              </div>
+            </div>
+
+            <div className="modal-b" style={{ maxHeight: '65vh', overflowY: 'auto' }}>
+              {/* Slip Print Preview Card */}
+              <div className={`thermal-slip-box size-${receiptWidth}`}>
+                {/* CUSTOMER COPY */}
+                {(receiptCopy === 'customer' || receiptCopy === 'both') && (
+                  <div>
+                    <div className="thermal-slip-header">
+                      <div style={{ fontSize: 16, fontWeight: 800 }}>Byte NCo - {receiptOrder.cartName || user.cartName}</div>
+                      <div className="thermal-slip-copy-badge">CUSTOMER COPY</div>
+                      <div style={{ marginTop: 6, fontSize: 11 }}>
+                        Date: {fmtDateTime(receiptOrder.OrderDate)}
+                      </div>
+                      <div style={{ fontWeight: 700, fontSize: 13, marginTop: 2 }}>
+                        Order No: {receiptOrder.OrderNo}
+                      </div>
+                    </div>
+
+                    {/* Line Items */}
+                    <div style={{ margin: '8px 0' }}>
+                      {(receiptOrder.items || []).map((it, idx) => (
+                        <div key={idx} className="thermal-slip-row">
+                          <span>{it.Qty} x {it.ProductNameSnapshot}</span>
+                          <span style={{ fontWeight: 600 }}>{fmtPkr(it.SubTotal)}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="thermal-slip-divider" />
+
+                    <div className="thermal-slip-row" style={{ fontSize: 14, fontWeight: 800 }}>
+                      <span>TOTAL</span>
+                      <span>{fmtPkr(receiptOrder.TotalAmount)}</span>
+                    </div>
+                    <div className="thermal-slip-row" style={{ fontSize: 11 }}>
+                      <span>Payment:</span>
+                      <span style={{ fontWeight: 600 }}>{receiptOrder.PaymentMethod}</span>
+                    </div>
+
+                    <div className="thermal-slip-footer">
+                      <div>Shukriya! Dobara Tashreef Layen</div>
+                      <div style={{ fontSize: 10, marginTop: 4, color: 'var(--paper-mute)' }}>
+                        Powered by Byte NCo Simple POS
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* SHOP COPY */}
+                {(receiptCopy === 'shop' || receiptCopy === 'both') && (
+                  <div style={{ marginTop: receiptCopy === 'both' ? 24 : 0 }}>
+                    <div className="thermal-slip-header">
+                      <div style={{ fontSize: 16, fontWeight: 800 }}>Byte NCo - {receiptOrder.cartName || user.cartName}</div>
+                      <div className="thermal-slip-copy-badge" style={{ background: '#000', color: '#fff' }}>SHOP COPY</div>
+                      <div style={{ marginTop: 6, fontSize: 11 }}>
+                        Date: {fmtDateTime(receiptOrder.OrderDate)}
+                      </div>
+                      <div style={{ fontWeight: 700, fontSize: 13, marginTop: 2 }}>
+                        Order No: {receiptOrder.OrderNo}
+                      </div>
+                    </div>
+
+                    {/* Line Items */}
+                    <div style={{ margin: '8px 0' }}>
+                      {(receiptOrder.items || []).map((it, idx) => (
+                        <div key={idx} className="thermal-slip-row">
+                          <span>{it.Qty} x {it.ProductNameSnapshot}</span>
+                          <span style={{ fontWeight: 600 }}>{fmtPkr(it.SubTotal)}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="thermal-slip-divider" />
+
+                    <div className="thermal-slip-row" style={{ fontSize: 14, fontWeight: 800 }}>
+                      <span>TOTAL</span>
+                      <span>{fmtPkr(receiptOrder.TotalAmount)}</span>
+                    </div>
+                    <div className="thermal-slip-row" style={{ fontSize: 11 }}>
+                      <span>Payment:</span>
+                      <span style={{ fontWeight: 600 }}>{receiptOrder.PaymentMethod}</span>
+                    </div>
+
+                    <div className="thermal-slip-footer">
+                      <div>INTERNAL SHOP RECORD</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="modal-f no-print" style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn sm primary" onClick={() => handlePrint('customer')}>
+                  🖨️ Customer Copy
+                </button>
+                <button className="btn sm" onClick={() => handlePrint('shop')}>
+                  🖨️ Shop Copy
+                </button>
+                <button className="btn sm" onClick={() => handlePrint('both')}>
+                  Print Both
+                </button>
+              </div>
+              <button className="btn ghost sm" onClick={() => setReceiptOrder(null)}>
+                Done
+              </button>
+            </div>
+          </div>
         </div>
       )}
-      {err && <div className="alert bad" role="alert"><Icon n="alert" />{err}</div>}
-    </Modal>
-  );
-}
 
-/* ---------------------------- slips modal ---------------------------- */
-function SlipsModal({ order, onClose }: { order: Order; onClose: () => void }) {
-  const { S, toast, print } = useApp();
-  const c = customerRows(order, S.settings);
-  const k = kitchenRows(order);
-  const copy = (rows: Row[], label: string) => copyText(toText(rows), () => toast(label + ' copied as text'), () => toast('Copy is not available in this view'));
-  return (
-    <Modal wide title={'Order #' + order.no} sub={typeLabel(order) + ' · ' + (order.paid ? 'Paid' : 'Unpaid')} onClose={onClose}
-      foot={<><button className="btn" onClick={() => print(order, 'both')}><Icon n="receipt" s={16} />Print both slips</button><button className="btn primary" onClick={onClose}>Done</button></>}>
-      <div className="slips">
-        <figure>
-          <figcaption><b>Customer receipt</b><span className="muted">Priced, with tax and payment</span></figcaption>
-          <Slip rows={c} kind="customer" />
-          <div className="slip-actions">
-            <button className="btn sm primary" onClick={() => print(order, 'customer')}>Print receipt</button>
-            <button className="btn sm" onClick={() => copy(c, 'Customer receipt')}>Copy text</button>
-          </div>
-        </figure>
-        <figure>
-          <figcaption><b>Kitchen and owner copy</b><span className="muted">Large type items, owner totals below</span></figcaption>
-          <Slip rows={k} kind="kitchen" />
-          <div className="slip-actions">
-            <button className="btn sm primary" onClick={() => print(order, 'kitchen')}>Print kitchen copy</button>
-            <button className="btn sm" onClick={() => copy(k, 'Kitchen copy')}>Copy text</button>
-          </div>
-        </figure>
-      </div>
-    </Modal>
-  );
-}
-
-/* ------------------------------ orders ------------------------------ */
-function Orders({ showSlips }: { showSlips: (no: number) => void }) {
-  const { S, setS, now, toast, print } = useApp();
-  const [tab, setTab] = useState<'board' | 'history'>('board');
-  const [statusTab, setStatusTab] = useState<'all' | Status>('all');
-  const [payNo, setPayNo] = useState<number | null>(null);
-  const payOrder = payNo === null ? undefined : S.orders.find(o => o.no === payNo);
-  const cols: [Status, string][] = [['new', 'New'], ['preparing', 'Preparing'], ['ready', 'Ready to serve']];
-  const advance = (no: number) => {
-    const o = S.orders.find(x => x.no === no);
-    if (o) api.updateOrderStatus(no, NEXT[o.status]);
-    setS(s => ({ ...s, orders: s.orders.map(o => (o.no === no ? { ...o, status: NEXT[o.status] } : o)) }));
-  };
-
-  const filteredCols = cols.filter(([st]) => statusTab === 'all' || statusTab === st);
-
-  return (
-    <div className="stack">
-      <Seg value={tab} onChange={setTab} options={[['board', 'Kitchen board'], ['history', 'History']]} />
-      {tab === 'board' && (
-        <>
-          <div className="board-mobile-filter">
-            <Seg
-              value={statusTab}
-              onChange={setStatusTab}
-              options={[
-                ['all', 'All (' + S.orders.filter(o => o.status !== 'served').length + ')'],
-                ['new', 'New (' + S.orders.filter(o => o.status === 'new').length + ')'],
-                ['preparing', 'Prep (' + S.orders.filter(o => o.status === 'preparing').length + ')'],
-                ['ready', 'Ready (' + S.orders.filter(o => o.status === 'ready').length + ')'],
-              ]}
-            />
-          </div>
-          <div className="board">
-            {filteredCols.map(([st, title]) => {
-              const list = S.orders.filter(o => o.status === st).sort((a, b) => a.at - b.at);
-              return (
-                <section key={st} className="col">
-                  <h3>{title}<span>{list.length}</span></h3>
-                  {list.length === 0 && <p className="empty sm">Nothing here.</p>}
-                  {list.map(o => {
-                    const late = st !== 'ready' && (now - o.at) / 60000 > 25;
-                    return (
-                      <article key={o.no} className={'ocard ' + st}>
-                        <header><b>#{o.no}</b><span>{typeLabel(o)}</span><span className="ago">{ago(o.at, now)}</span></header>
-                        <ul>{o.lines.map((l, i) => <li key={i}><b>{l.qty}×</b> {l.name}{l.note && <em>{l.note}</em>}</li>)}</ul>
-                        <footer>
-                          <Pill tone={o.paid ? 'good' : 'warn'}>{o.paid ? 'Paid' : 'Unpaid'}</Pill>
-                          {late && <Pill tone="bad">Late</Pill>}
-                          <span className="grow" />
-                          <button className="btn sm ghost" onClick={() => showSlips(o.no)}>Slips</button>
-                          {!o.paid && <button className="btn sm" onClick={() => setPayNo(o.no)}>Pay</button>}
-                          <button className="btn sm primary" onClick={() => advance(o.no)}>{ACT[st]}</button>
-                        </footer>
-                      </article>
-                    );
-                  })}
-                </section>
-              );
-            })}
-          </div>
-        </>
-      )}
-      {tab === 'history' && (
-        <div className="card flush">
-          <div className="tablewrap">
-            <table>
-              <thead><tr><th>Order</th><th>Time</th><th>Type</th><th className="r">Items</th><th className="r">Total</th><th>Payment</th><th>Status</th><th /></tr></thead>
-              <tbody>
-                {S.orders.slice(0, 30).map(o => (
-                  <tr key={o.no}>
-                    <td className="mono">#{o.no}</td><td>{timeStr(o.at)}</td><td>{typeLabel(o)}</td>
-                    <td className="r">{o.lines.reduce((a, l) => a + l.qty, 0)}</td><td className="r">{num(o.total)}</td>
-                    <td>{o.paid && o.pay ? <Pill tone="good">{cap(o.pay.method)}</Pill> : <Pill tone="warn">Unpaid</Pill>}</td>
-                    <td><Pill tone={o.status === 'served' ? 'mute' : 'info'}>{cap(o.status)}</Pill></td>
-                    <td className="r"><button className="btn sm ghost" onClick={() => showSlips(o.no)}>Slips</button>{!o.paid && <button className="btn sm" onClick={() => setPayNo(o.no)}>Pay</button>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {/* Global Toast */}
+      {toastMsg && (
+        <div className="toast">
+          {toastMsg}
         </div>
       )}
-      {payOrder && (
-        <PaymentModal amount={payOrder.total} label={'Order #' + payOrder.no + ' · ' + typeLabel(payOrder)} onClose={() => setPayNo(null)}
-          onPaid={info => {
-            api.payOrder(payOrder.no, info);
-            setS(s => ({ ...s, orders: s.orders.map(o => (o.no === payOrder.no ? { ...o, paid: true, pay: info } : o)) }));
-            setPayNo(null);
-            showSlips(payOrder.no);
-            if (S.settings.autoPrint) void print({ ...payOrder, paid: true, pay: info }, 'customer', 'Payment received for #' + payOrder.no + '. Receipt printed');
-            else toast('Payment received for #' + payOrder.no);
-          }} />
-      )}
-    </div>
-  );
-}
-
-/* --------------------------- menu manager --------------------------- */
-function MenuManager() {
-  const { S, setS, toast } = useApp();
-  const [q, setQ] = useState('');
-  const [nm, setNm] = useState('');
-  const [np, setNp] = useState('');
-  const [nc, setNc] = useState(CATS[0]);
-  const list = S.menu.filter(m => m.name.toLowerCase().includes(q.trim().toLowerCase()) || m.cat.toLowerCase().includes(q.trim().toLowerCase()));
-  const upd = (id: string, p: Partial<MenuItem>) => {
-    api.updateMenuItem(id, p);
-    setS(s => ({ ...s, menu: s.menu.map(m => (m.id === id ? { ...m, ...p } : m)) }));
-  };
-  const addItem = (e: React.FormEvent) => {
-    e.preventDefault();
-    const price = Number(np);
-    if (!nm.trim() || !(price > 0)) { toast('Enter an item name and a price above zero'); return; }
-    const newItem: MenuItem = { id: 'm' + (S.menu.length + 1 + Date.now() % 1000), name: nm.trim(), price, cat: nc, available: true };
-    api.createMenuItem(newItem);
-    setS(s => ({ ...s, menu: [...s.menu, newItem] }));
-    setNm(''); setNp(''); toast(nm.trim() + ' added to the menu');
-  };
-  return (
-    <div className="stack">
-      <form className="card add-item" onSubmit={addItem}>
-        <div className="field grow2"><label htmlFor="nm">New item</label><input id="nm" className="in" value={nm} onChange={e => setNm(e.target.value)} placeholder="e.g. Reshmi Kabab (4 pcs)" /></div>
-        <div className="field"><label htmlFor="nc">Category</label><select id="nc" className="in" value={nc} onChange={e => setNc(e.target.value)}>{CATS.map(c => <option key={c}>{c}</option>)}</select></div>
-        <div className="field"><label htmlFor="np">Price (Rs)</label><input id="np" className="in" inputMode="numeric" value={np} onChange={e => setNp(e.target.value.replace(/\D/g, ''))} /></div>
-        <button className="btn primary" type="submit"><Icon n="plus" s={16} />Add</button>
-      </form>
-      <div className="card flush">
-        <div className="card-tools"><label className="search"><Icon n="search" /><input id="menu-search" type="search" placeholder="Search items or categories" value={q} onChange={e => setQ(e.target.value)} /></label><span className="muted">{list.length} items</span></div>
-        <div className="tablewrap">
-          <table>
-            <thead><tr><th>Item</th><th>Category</th><th className="r">Price (Rs)</th><th>Available</th></tr></thead>
-            <tbody>
-              {list.map(m => (
-                <tr key={m.id}>
-                  <td>{m.name}</td><td className="muted">{m.cat}</td>
-                  <td className="r"><input key={m.id + ':' + m.price} className="in sm price" inputMode="numeric" aria-label={'Price of ' + m.name} defaultValue={m.price} onBlur={e => upd(m.id, { price: Math.max(0, Number(e.target.value) || 0) })} /></td>
-                  <td><Switch on={m.available} label={'Available: ' + m.name} onChange={v => upd(m.id, { available: v })} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------ reports ------------------------------ */
-function Reports() {
-  const { S, now } = useApp();
-  const d = new Date(now); d.setMinutes(0, 0, 0);
-  const endHour = d.getTime();
-  const win = endHour - 11 * 3600000;
-  const inWin = S.orders.filter(o => o.at >= win);
-  const paid = inWin.filter(o => o.paid);
-  const collected = paid.reduce((a, o) => a + o.total, 0);
-  const taxTotal = paid.reduce((a, o) => a + o.tax, 0);
-  const buckets = Array.from({ length: 12 }, (_, i) => {
-    const start = win + i * 3600000;
-    const v = paid.filter(o => o.at >= start && o.at < start + 3600000).reduce((a, o) => a + o.total, 0);
-    return { label: pad2(new Date(start).getHours()), v, hi: i === 11 };
-  });
-  const methods: Method[] = ['cash', 'card', 'wallet'];
-  const mix = methods.map(m => ({ m, v: paid.filter(o => o.pay && o.pay.method === m).reduce((a, o) => a + o.total, 0), n: paid.filter(o => o.pay && o.pay.method === m).length }));
-  const itemMap: Record<string, { q: number; v: number }> = {};
-  inWin.forEach(o => o.lines.forEach(l => { const e = itemMap[l.name] || (itemMap[l.name] = { q: 0, v: 0 }); e.q += l.qty; e.v += l.qty * l.price; }));
-  const top = Object.keys(itemMap).map(n => ({ n, ...itemMap[n] })).sort((a, b) => b.q - a.q).slice(0, 6);
-  const types: OrderType[] = ['dine-in', 'takeaway', 'delivery'];
-  const split = types.map(t => ({ t, n: inWin.filter(o => o.type === t).length }));
-  return (
-    <div className="stack">
-      <div className="kpis">
-        <Kpi label="Collected" value={money(collected)} sub={paid.length + ' paid orders'} />
-        <Kpi label="Orders" value={String(inWin.length)} sub={inWin.length - paid.length + ' not paid yet'} />
-        <Kpi label="Average bill" value={money(paid.length ? collected / paid.length : 0)} />
-        <Kpi label="Tax collected" value={money(taxTotal)} sub={'at ' + S.settings.tax + '%'} />
-      </div>
-      <div className="card">
-        <div className="card-h"><h3>Sales by hour</h3><span className="muted">Rs, last 12 hours · sample data</span></div>
-        <Bars data={buckets} fmt={compact} />
-      </div>
-      <div className="grid3">
-        <div className="card"><div className="card-h"><h3>Payment methods</h3></div>
-          {mix.map(x => <HRow key={x.m} label={cap(x.m)} v={x.v} max={collected} right={money(x.v)} />)}
-        </div>
-        <div className="card"><div className="card-h"><h3>Top items</h3></div>
-          {top.map(x => <HRow key={x.n} label={x.n} v={x.q} max={top[0] ? top[0].q : 1} right={x.q + ' sold'} />)}
-        </div>
-        <div className="card"><div className="card-h"><h3>Order types</h3></div>
-          {split.map(x => <HRow key={x.t} label={cap(x.t)} v={x.n} max={inWin.length} right={String(x.n)} />)}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------ support ------------------------------ */
-function Support() {
-  const { S, setS, now, toast } = useApp();
-  const [title, setTitle] = useState('');
-  const [detail, setDetail] = useState('');
-  const [sev, setSev] = useState<Ticket['sev']>('normal');
-  const mine = S.tickets.filter(t => t.tid === 't1');
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) { toast('Add a short title so the team knows what broke'); return; }
-    const t: Ticket = { id: 'TCK-' + S.nextTicket, tid: 't1', title: title.trim(), detail: detail.trim() || 'No details provided.', sev, status: 'open', at: Date.now(), src: 'POS report' };
-    api.createTicket(t);
-    setS(s => ({ ...s, tickets: [t, ...s.tickets], nextTicket: s.nextTicket + 1 }));
-    setTitle(''); setDetail(''); setSev('normal'); toast('Sent as ' + t.id + '. The team can see it now.');
-  };
-  return (
-    <div className="grid2">
-      <form className="card" onSubmit={submit}>
-        <div className="card-h"><h3>Report a problem</h3></div>
-        <div className="field"><label htmlFor="tt">What went wrong?</label><input id="tt" className="in" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Kitchen slip did not print" /></div>
-        <div className="field"><label htmlFor="td">Details</label><textarea id="td" className="in" rows={4} value={detail} onChange={e => setDetail(e.target.value)} placeholder="What were you doing? Which order or table?" /></div>
-        <div className="field"><label>How urgent is it?</label>
-          <Seg value={sev} onChange={setSev} options={[['normal', 'Can wait'], ['high', 'Slowing us down'], ['critical', 'Cannot take orders']]} /></div>
-        <button className="btn primary" type="submit">Send to support</button>
-      </form>
-      <div className="card flush">
-        <div className="card-h pad"><h3>Your tickets</h3></div>
-        <ul className="tlist">
-          {mine.length === 0 && <li className="empty sm">No tickets yet.</li>}
-          {mine.map(t => (
-            <li key={t.id}>
-              <div><b>{t.title}</b><span className="muted">{t.id} · {ago(t.at, now)}</span></div>
-              <Pill tone={t.status === 'resolved' ? 'good' : t.status === 'progress' ? 'info' : 'warn'}>{t.status === 'progress' ? 'In progress' : cap(t.status)}</Pill>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </div>
-  );
-}
-
-/* ----------------------------- settings ----------------------------- */
-function SettingsView() {
-  const { S, setS } = useApp();
-  const s = S.settings;
-  const set = (p: Partial<Settings>) => {
-    api.updateSettings({ ...s, ...p });
-    setS(st => ({ ...st, settings: { ...st.settings, ...p } }));
-  };
-  const sample = useMemo(() => sampleOrder(s), [s]);
-  const pct = (v: string) => Math.min(30, Math.max(0, Number(v.replace(/[^\d.]/g, '')) || 0));
-  return (
-    <div className="grid2">
-      <div className="stack">
-      <div className="card">
-        <div className="card-h"><h3>Receipt details</h3></div>
-        <div className="field"><label htmlFor="sn">Restaurant name</label><input id="sn" className="in" value={s.name} onChange={e => set({ name: e.target.value })} /></div>
-        <div className="field"><label htmlFor="sa">Address</label><input id="sa" className="in" value={s.address} onChange={e => set({ address: e.target.value })} /></div>
-        <div className="field"><label htmlFor="sp">Phone</label><input id="sp" className="in" value={s.phone} onChange={e => set({ phone: e.target.value })} /></div>
-        <div className="field"><label htmlFor="sf">Footer message</label><input id="sf" className="in" value={s.footer} onChange={e => set({ footer: e.target.value })} /></div>
-        <div className="two">
-          <div className="field"><label htmlFor="st">Sales tax (%)</label><input id="st" className="in" inputMode="decimal" value={s.tax} onChange={e => set({ tax: pct(e.target.value) })} /></div>
-          <div className="field"><label htmlFor="ss">Dine-in service charge (%)</label><input id="ss" className="in" inputMode="decimal" value={s.service} onChange={e => set({ service: pct(e.target.value) })} /></div>
-        </div>
-        <p className="muted fine">Changes apply to new orders. Orders already placed keep the rates they were billed with.</p>
-      </div>
-      <PrintingCard />
-      <DataCard />
-      </div>
-      <div className="preview">
-        <span className="muted">Live receipt preview</span>
-        <Slip rows={customerRows(sample, s)} kind="customer" />
-      </div>
-    </div>
-  );
-}
-
-function PrintingCard() {
-  const { S, setS, print } = useApp();
-  const s = S.settings;
-  const bridge = window.posPrint;
-  const [printers, setPrinters] = useState<PrinterInfo[]>([]);
-  useEffect(() => {
-    if (!bridge) return;
-    let alive = true;
-    bridge.listPrinters().then(l => { if (alive) setPrinters(l); }).catch(() => undefined);
-    return () => { alive = false; };
-  }, [bridge]);
-  const set = (p: Partial<Settings>) => {
-    api.updateSettings({ ...s, ...p });
-    setS(st => ({ ...st, settings: { ...st.settings, ...p } }));
-  };
-  const def = printers.find(p => p.isDefault);
-  return (
-    <div className="card">
-      <div className="card-h"><h3>Printing</h3><Pill tone={bridge ? 'good' : 'mute'}>{bridge ? 'Desktop app' : 'Browser'}</Pill></div>
-      <div className="field"><label>Paper width</label>
-        <Seg value={s.paper} onChange={v => set({ paper: v })} options={[['80', '80 mm roll'], ['58', '58 mm roll']]} /></div>
-      {bridge ? (
-        <div className="field"><label htmlFor="pr">Receipt printer</label>
-          <select id="pr" className="in" value={s.printer} onChange={e => set({ printer: e.target.value })}>
-            <option value="">{'System default' + (def ? ' (' + def.name + ')' : '')}</option>
-            {printers.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-          </select></div>
-      ) : (
-        <p className="muted fine">Running in a browser, so slips open the normal print dialog. The desktop app prints straight to the receipt printer with no dialog.</p>
-      )}
-      <div className="setrow"><div><b>Print automatically</b><span className="muted">Kitchen copy when an order is sent. Both slips when it is paid.</span></div>
-        <Switch on={s.autoPrint} label="Print automatically" onChange={v => set({ autoPrint: v })} /></div>
-      <button className="btn" onClick={() => print(sampleOrder(s), 'both', 'Test slips sent to the printer')}>Print test slips</button>
-    </div>
-  );
-}
-
-function DataCard() {
-  const { setS, toast } = useApp();
-  const [sure, setSure] = useState(false);
-  return (
-    <div className="card">
-      <div className="card-h"><h3>Data on this computer</h3></div>
-      <p className="muted fine">Orders, menu and settings are saved on this computer and work with no internet. Card and wallet payments need internet. Cash does not.</p>
-      {sure ? (
-        <div className="row-gap">
-          <button className="btn danger" onClick={() => {
-            api.resetDatabase();
-            setS(s => ({ ...initState(), session: s.session, dbConnected: true }));
-            setSure(false);
-            toast('Sample data restored and synced with MSSQL');
-          }}>Erase and restore sample data</button>
-          <button className="btn ghost" onClick={() => setSure(false)}>Cancel</button>
-        </div>
-      ) : <button className="btn" onClick={() => setSure(true)}>Reset to sample data</button>}
-    </div>
-  );
-}
-
-/* ============================== admin panel ============================== */
-type AView = 'overview' | 'restaurants' | 'tickets' | 'maintenance';
-function AdminApp() {
-  const { S } = useApp();
-  const [view, setView] = useState<AView>('overview');
-  const openT = S.tickets.filter(t => t.status !== 'resolved').length;
-  const nav: NavItem[] = [
-    { k: 'overview', label: 'Overview', icon: 'grid' },
-    { k: 'restaurants', label: 'Restaurants', icon: 'store' },
-    { k: 'tickets', label: 'Support tickets', icon: 'ticket', badge: openT },
-    { k: 'maintenance', label: 'Maintenance', icon: 'wrench' },
-  ];
-  const titles: Record<AView, [string, string]> = {
-    overview: ['Overview', 'Health of every restaurant on ' + BRAND],
-    restaurants: ['Restaurants', 'Licenses, versions and access'],
-    tickets: ['Support tickets', 'Bugs and requests from restaurants'],
-    maintenance: ['Maintenance', 'Maintenance mode, gateway, feature flags and audit log'],
-  };
-  return (
-    <Shell admin nav={nav} view={view} setView={v => setView(v as AView)} title={titles[view][0]} sub={titles[view][1]}>
-      {view === 'overview' && <AdminOverview go={setView} />}
-      {view === 'restaurants' && <AdminTenants />}
-      {view === 'tickets' && <AdminTickets />}
-      {view === 'maintenance' && <AdminMaintenance />}
-    </Shell>
-  );
-}
-
-const sevTone = (s: Ticket['sev']): Tone => (s === 'critical' ? 'bad' : s === 'high' ? 'warn' : 'mute');
-const tStatusLabel = (s: Ticket['status']) => (s === 'progress' ? 'In progress' : cap(s));
-
-function AdminOverview({ go }: { go: (v: AView) => void }) {
-  const { S } = useApp();
-  const mrr = S.tenants.filter(t => t.status === 'active').reduce((a, t) => a + PRICE[t.plan], 0);
-  const activeN = S.tenants.filter(t => t.status === 'active').length;
-  const openT = S.tickets.filter(t => t.status !== 'resolved');
-  const crit = openT.filter(t => t.sev === 'critical');
-  const today = 1180 + S.orders.length;
-  const days = [812, 905, 870, 960, 1104, 1210, 1156, 934, 998, 1020, 1088, 1190, 1245];
-  const data = [...days, today].map((v, i, a) => ({ label: i === a.length - 1 ? 'Today' : String(i + 1), v, hi: i === a.length - 1 }));
-  const attn: { tone: Tone; text: string; go?: AView }[] = [];
-  if (S.gatewayDown) attn.push({ tone: 'bad', text: 'Payment gateway outage is being simulated', go: 'maintenance' });
-  crit.forEach(t => attn.push({ tone: 'bad', text: t.id + ': ' + t.title, go: 'tickets' }));
-  S.tenants.filter(t => t.status === 'suspended').forEach(t => attn.push({ tone: 'bad', text: t.name + ' is suspended', go: 'restaurants' }));
-  S.tenants.filter(t => t.licenseDays > 0 && t.licenseDays <= 14).forEach(t => attn.push({ tone: 'warn', text: t.name + ': license ends in ' + t.licenseDays + ' days', go: 'restaurants' }));
-  if (S.maint !== 'off') attn.push({ tone: 'warn', text: 'Maintenance mode is on for all restaurants', go: 'maintenance' });
-  const health: [string, Tone, string][] = [
-    ['Sync API', 'good', 'Operational'], ['Database', 'good', 'Operational'],
-    [sandbox.name, S.gatewayDown ? 'bad' : 'good', S.gatewayDown ? 'Outage' : 'Operational'],
-    ['Receipt printing service', 'good', 'Operational'],
-  ];
-  return (
-    <div className="stack">
-      <div className="kpis">
-        <Kpi label="Active restaurants" value={String(activeN)} sub={S.tenants.length + ' total, ' + S.tenants.filter(t => t.status === 'trial').length + ' on trial'} />
-        <Kpi label="Monthly recurring revenue" value={money(mrr)} />
-        <Kpi label="Orders today" value={num(today)} sub="across all restaurants" />
-        <Kpi label="Open tickets" value={String(openT.length)} sub={crit.length + ' critical'} tone={crit.length ? 'bad' : undefined} />
-      </div>
-      <div className="grid2 wide-left">
-        <div className="card">
-          <div className="card-h"><h3>Orders per day</h3><span className="muted">Last 14 days · sample data</span></div>
-          <Bars data={data} fmt={compact} />
-        </div>
-        <div className="card">
-          <div className="card-h"><h3>Needs attention</h3></div>
-          {attn.length === 0 ? <p className="empty sm">All clear.</p> : (
-            <ul className="attn">{attn.map((a, i) => (
-              <li key={i}><Pill tone={a.tone}>{a.tone === 'bad' ? 'Urgent' : 'Soon'}</Pill><span>{a.text}</span>{a.go && <button className="link sm" onClick={() => go(a.go as AView)}>Open</button>}</li>
-            ))}</ul>
-          )}
-        </div>
-      </div>
-      <div className="card">
-        <div className="card-h"><h3>System status</h3></div>
-        <ul className="health">{health.map(h => <li key={h[0]}><span>{h[0]}</span><Pill tone={h[1]}>{h[2]}</Pill></li>)}</ul>
-      </div>
-    </div>
-  );
-}
-
-function AdminTenants() {
-  const { S, setS, now, audit } = useApp();
-  const upd = (id: string, p: Partial<Tenant>) => {
-    api.updateTenant(id, p);
-    setS(s => ({ ...s, tenants: s.tenants.map(t => (t.id === id ? { ...t, ...p } : t)) }));
-  };
-  return (
-    <div className="card flush">
-      <div className="tablewrap">
-        <table>
-          <thead><tr><th>Restaurant</th><th>Plan</th><th>Status</th><th className="r">Branches</th><th>Version</th><th>Last sync</th><th>License</th><th /></tr></thead>
-          <tbody>
-            {S.tenants.map(t => (
-              <tr key={t.id}>
-                <td><b>{t.name}</b><div className="muted">{t.city}</div></td>
-                <td>{t.plan}<div className="muted">{money(PRICE[t.plan])} / month</div></td>
-                <td><Pill tone={t.status === 'active' ? 'good' : t.status === 'trial' ? 'info' : 'bad'}>{cap(t.status)}</Pill></td>
-                <td className="r">{t.branches}</td>
-                <td className="mono">{t.version}</td>
-                <td>{ago(now - t.sync * 60000, now)}</td>
-                <td><Pill tone={t.licenseDays <= 0 ? 'bad' : t.licenseDays <= 14 ? 'warn' : 'mute'}>{t.licenseDays > 0 ? t.licenseDays + ' days' : 'Expired ' + -t.licenseDays + ' d ago'}</Pill></td>
-                <td className="r nowrap">
-                  <button className="btn sm ghost" onClick={() => { upd(t.id, { licenseDays: Math.max(0, t.licenseDays) + 30 }); audit('Extended license for ' + t.name + ' by 30 days'); }}>+30 days</button>
-                  {t.status === 'suspended'
-                    ? <button className="btn sm" onClick={() => { upd(t.id, { status: 'active', licenseDays: t.licenseDays > 0 ? t.licenseDays : 30 }); audit('Reactivated ' + t.name); }}>Activate</button>
-                    : <button className="btn sm danger" onClick={() => { upd(t.id, { status: 'suspended' }); audit('Suspended ' + t.name); }}>Suspend</button>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="muted fine pad">Suspending a restaurant blocks its staff at the next sign-in. Try it, then open the restaurant panel.</p>
-    </div>
-  );
-}
-
-function AdminTickets() {
-  const { S, setS, now, audit } = useApp();
-  const [f, setF] = useState<'all' | Ticket['status']>('all');
-  const list = S.tickets.filter(t => f === 'all' || t.status === f);
-  const name = (id: string) => (S.tenants.find(t => t.id === id) || { name: id }).name;
-  const setStatus = (t: Ticket, status: Ticket['status']) => {
-    api.updateTicketStatus(t.id, status);
-    setS(s => ({ ...s, tickets: s.tickets.map(x => (x.id === t.id ? { ...x, status } : x)) }));
-    audit(t.id + ' marked ' + tStatusLabel(status).toLowerCase());
-  };
-  return (
-    <div className="stack">
-      <Seg value={f} onChange={setF} options={[['all', 'All'], ['open', 'Open'], ['progress', 'In progress'], ['resolved', 'Resolved']]} />
-      <div className="card flush">
-        <div className="tablewrap">
-          <table>
-            <thead><tr><th>Ticket</th><th>Restaurant</th><th>Severity</th><th>Source</th><th>Opened</th><th>Status</th></tr></thead>
-            <tbody>
-              {list.map(t => (
-                <tr key={t.id}>
-                  <td className="tcell"><b>{t.title}</b><div className="muted">{t.id} · {t.detail}</div></td>
-                  <td>{name(t.tid)}</td>
-                  <td><Pill tone={sevTone(t.sev)}>{cap(t.sev)}</Pill></td>
-                  <td className="muted">{t.src}</td>
-                  <td>{ago(t.at, now)}</td>
-                  <td><select className="in sm" aria-label={'Status of ' + t.id} value={t.status} onChange={e => setStatus(t, e.target.value as Ticket['status'])}>
-                    <option value="open">Open</option><option value="progress">In progress</option><option value="resolved">Resolved</option>
-                  </select></td>
-                </tr>
-              ))}
-              {list.length === 0 && <tr><td colSpan={6} className="empty sm">No tickets in this view.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AdminMaintenance() {
-  const { S, setS, now, audit } = useApp();
-  const versions: Record<string, number> = {};
-  S.tenants.forEach(t => { versions[t.version] = (versions[t.version] || 0) + 1; });
-  const flagRows: [keyof Flags, string, string][] = [
-    ['wallet', 'Mobile wallet payments', 'Shows the wallet option at checkout.'],
-    ['delivery', 'Delivery orders', 'Adds Delivery next to Dine-in and Takeaway.'],
-    ['discount', 'Discounts', 'Shows the discount selector on the bill.'],
-  ];
-  const setMaint = (m: Maint) => {
-    api.updateSystem({ maint: m });
-    setS(s => ({ ...s, maint: m }));
-    audit('Maintenance mode set to ' + (m === 'off' ? 'off' : m === 'notice' ? 'notice only' : 'read-only'));
-  };
-  return (
-    <div className="grid2">
-      <div className="card">
-        <div className="card-h"><h3>Maintenance mode</h3><Pill tone={S.maint === 'off' ? 'good' : 'warn'}>{S.maint === 'off' ? 'Off' : S.maint === 'notice' ? 'Notice' : 'Read-only'}</Pill></div>
-        <Seg value={S.maint} onChange={setMaint} options={[['off', 'Off'], ['notice', 'Notice only'], ['readonly', 'Read-only']]} />
-        <div className="field"><label htmlFor="mm">Message shown to restaurants</label>
-          <textarea id="mm" className="in" rows={3} value={S.maintMsg} onChange={e => {
-            const msg = e.target.value;
-            api.updateSystem({ maintMsg: msg });
-            setS(s => ({ ...s, maintMsg: msg }));
-          }} /></div>
-        <p className="muted fine">Notice shows a banner. Read-only also pauses new orders and payments. Open the restaurant panel to see it.</p>
-      </div>
-      <div className="card">
-        <div className="card-h"><h3>Payment gateway</h3><Pill tone={S.gatewayDown ? 'bad' : 'good'}>{S.gatewayDown ? 'Outage' : 'Operational'}</Pill></div>
-        <div className="setrow"><div><b>{sandbox.name}</b><span className="muted">Provider adapter in use. Real gateways plug into the same interface.</span></div></div>
-        <div className="setrow"><div><b>Simulate an outage</b><span className="muted">Card and wallet payments fail with a clear error. Cash keeps working.</span></div>
-          <Switch on={S.gatewayDown} label="Simulate gateway outage" onChange={v => {
-            api.updateSystem({ gatewayDown: v });
-            setS(s => ({ ...s, gatewayDown: v }));
-            audit(v ? 'Started gateway outage simulation' : 'Ended gateway outage simulation');
-          }} /></div>
-      </div>
-      <div className="card">
-        <div className="card-h"><h3>Feature flags</h3><span className="muted">Apply to all restaurants</span></div>
-        {flagRows.map(f => (
-          <div className="setrow" key={f[0]}>
-            <div><b>{f[1]}</b><span className="muted">{f[2]}</span></div>
-            <Switch on={S.flags[f[0]]} label={f[1]} onChange={v => {
-              const updatedFlags = { ...S.flags, [f[0]]: v };
-              api.updateSystem({ flags: updatedFlags });
-              setS(s => ({ ...s, flags: updatedFlags }));
-              audit((v ? 'Enabled ' : 'Disabled ') + f[1].toLowerCase());
-            }} />
-          </div>
-        ))}
-      </div>
-      <div className="card">
-        <div className="card-h"><h3>Versions in the field</h3></div>
-        {Object.keys(versions).sort().reverse().map(v => <HRow key={v} label={'v' + v} v={versions[v]} max={S.tenants.length} right={versions[v] + (versions[v] === 1 ? ' restaurant' : ' restaurants')} />)}
-        <h3 className="sub-h">Audit log</h3>
-        <ul className="audit">{S.audit.slice(0, 8).map((a, i) => <li key={i}><span className="muted">{ago(a.at, now)}</span><span>{a.text}</span><span className="muted mono">{a.actor}</span></li>)}</ul>
-      </div>
     </div>
   );
 }

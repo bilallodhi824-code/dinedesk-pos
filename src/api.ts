@@ -1,21 +1,93 @@
-const API_BASE = '/api';
+// Byte NCo Simple POS API Client
+const API_BASE = '/api/v1';
 
-export interface ServerState {
-  menu?: any[];
-  orders?: any[];
-  settings?: any;
-  tenants?: any[];
-  tickets?: any[];
-  flags?: any;
-  maint?: string;
-  maintMsg?: string;
-  gatewayDown?: boolean;
-  nextNo?: number;
-  nextTicket?: number;
-  audit?: any[];
+export interface User {
+  userId: number;
+  ownerName: string;
+  mobile?: string;
+  cartName?: string;
+  city?: string;
+  email?: string;
+  status: 'Pending' | 'Approved' | 'Rejected' | 'Blocked';
+  role: 'owner' | 'admin';
+}
+
+export interface Product {
+  ProductID: number;
+  ProductName: string;
+  Price: number;
+  ImageUrl?: string | null;
+  IsActive: boolean;
+  CreatedAt?: string;
+  UpdatedAt?: string;
+}
+
+export interface OrderItem {
+  ItemID?: number;
+  ProductID?: number;
+  ProductNameSnapshot: string;
+  Qty: number;
+  UnitPrice: number;
+  SubTotal: number;
+}
+
+export interface Order {
+  OrderID: number;
+  OrderNo: string;
+  TotalAmount: number;
+  PaymentMethod: 'Cash' | 'JazzCash' | 'EasyPaisa';
+  OrderStatus: 'Completed' | 'Voided';
+  OrderDate: string;
+  cartName?: string;
+  ownerName?: string;
+  items?: OrderItem[];
+  TotalItems?: number;
+}
+
+export interface DashboardMetrics {
+  date: string;
+  timezone: string;
+  currency: string;
+  todayTotalSales: number;
+  todayOrdersCount: number;
+  todayCashSales: number;
+  todayJazzCashSales: number;
+  todayEasyPaisaSales: number;
+}
+
+export interface PaymentSubmission {
+  PaymentID: number;
+  Amount: number;
+  CurrencyCode: string;
+  PaymentMethod: string;
+  Reference: string;
+  PaymentProofUrl?: string | null;
+  Status: 'Pending' | 'Approved' | 'Rejected';
+  RejectionReason?: string | null;
+  CreatedAt: string;
+  ReviewedAt?: string | null;
+}
+
+export interface AdminStats {
+  owners: { Pending: number; Approved: number; Rejected: number; Blocked: number };
+  pendingPayments: number;
+  totalPlatformSales: number;
+  totalPlatformOrders: number;
+}
+
+function getStoredToken(): string | null {
+  return localStorage.getItem('bytenco_token');
+}
+
+function setStoredToken(token: string | null) {
+  if (token) localStorage.setItem('bytenco_token', token);
+  else localStorage.removeItem('bytenco_token');
 }
 
 export const api = {
+  getToken: getStoredToken,
+  setToken: setStoredToken,
+
   async checkHealth(): Promise<boolean> {
     try {
       const res = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(3000) });
@@ -29,196 +101,280 @@ export const api = {
     }
   },
 
-  async fetchInitialState(): Promise<ServerState | null> {
+  async getMe(): Promise<User | null> {
+    const token = getStoredToken();
+    if (!token) return null;
     try {
-      const [menuRes, ordersRes, settingsRes, tenantsRes, ticketsRes, sysRes, auditRes] =
-        await Promise.all([
-          fetch(`${API_BASE}/menu`),
-          fetch(`${API_BASE}/orders`),
-          fetch(`${API_BASE}/settings`),
-          fetch(`${API_BASE}/tenants`),
-          fetch(`${API_BASE}/tickets`),
-          fetch(`${API_BASE}/system`),
-          fetch(`${API_BASE}/audit`),
-        ]);
-
-      if (!menuRes.ok) return null;
-      const ct = menuRes.headers.get('content-type') || '';
-      if (!ct.includes('application/json')) return null;
-
-      const menu = await menuRes.json();
-      const orders = await ordersRes.json();
-      const settings = await settingsRes.json();
-      const tenants = await tenantsRes.json();
-      const tickets = await ticketsRes.json();
-      const sys = await sysRes.json();
-      const audit = await auditRes.json();
-
-      return {
-        menu,
-        orders,
-        settings,
-        tenants,
-        tickets,
-        flags: sys.flags,
-        maint: sys.maint,
-        maintMsg: sys.maintMsg,
-        gatewayDown: sys.gatewayDown,
-        nextNo: sys.nextNo,
-        nextTicket: sys.nextTicket,
-        audit,
-      };
-    } catch (err) {
-      console.warn('[API] Could not fetch server state from MSSQL backend:', err);
+      const res = await fetch(`${API_BASE}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
       return null;
     }
   },
 
-  async createOrder(order: any): Promise<void> {
-    try {
-      await fetch(`${API_BASE}/orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(order),
-      });
-    } catch (err) {
-      console.warn('[API] Failed to sync order to MSSQL:', err);
-    }
+  async login(identifier: string, password: string): Promise<{ token: string; user: User }> {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Login failed');
+    setStoredToken(data.token);
+    return data;
   },
 
-  async updateOrderStatus(no: number, status: string): Promise<void> {
-    try {
-      await fetch(`${API_BASE}/orders/${no}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      });
-    } catch (err) {
-      console.warn('[API] Failed to update order status in MSSQL:', err);
-    }
+  async register(params: {
+    ownerName: string;
+    mobile: string;
+    cartName: string;
+    city: string;
+    password: string;
+  }): Promise<{ token: string; user: User }> {
+    const res = await fetch(`${API_BASE}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Registration failed');
+    setStoredToken(data.token);
+    return data;
   },
 
-  async payOrder(no: number, payInfo: any): Promise<void> {
-    try {
-      await fetch(`${API_BASE}/orders/${no}/pay`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payInfo),
-      });
-    } catch (err) {
-      console.warn('[API] Failed to record payment in MSSQL:', err);
-    }
+  logout() {
+    setStoredToken(null);
   },
 
-  async createMenuItem(item: any): Promise<void> {
+  // Payment instructions and submissions
+  async getPaymentInstructions(): Promise<{ currency: string; fee: number; instructions: string }> {
     try {
-      await fetch(`${API_BASE}/menu`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(item),
-      });
-    } catch (err) {
-      console.warn('[API] Failed to create menu item in MSSQL:', err);
-    }
+      const res = await fetch(`${API_BASE}/payments/instructions`);
+      if (res.ok) return await res.json();
+    } catch {}
+    return {
+      currency: 'PKR',
+      fee: 500,
+      instructions: 'Transfer Rs. 500 to JazzCash/EasyPaisa: 0300-1234567 (Title: Byte NCo POS), and submit your Transaction Reference ID below.',
+    };
   },
 
-  async updateMenuItem(id: string, p: any): Promise<void> {
-    try {
-      await fetch(`${API_BASE}/menu/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(p),
-      });
-    } catch (err) {
-      console.warn('[API] Failed to update menu item in MSSQL:', err);
-    }
+  async getMyPaymentStatus(): Promise<{ ownerStatus: string; payments: PaymentSubmission[] }> {
+    const token = getStoredToken();
+    const res = await fetch(`${API_BASE}/payments/my-status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Failed to fetch status');
+    return data;
   },
 
-  async deleteMenuItem(id: string): Promise<void> {
-    try {
-      await fetch(`${API_BASE}/menu/${id}`, { method: 'DELETE' });
-    } catch (err) {
-      console.warn('[API] Failed to delete menu item in MSSQL:', err);
-    }
+  async submitPayment(params: {
+    amount: number;
+    paymentMethod: string;
+    reference: string;
+    proofBase64?: string;
+  }): Promise<any> {
+    const token = getStoredToken();
+    const res = await fetch(`${API_BASE}/payments/submit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(params),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Payment submission failed');
+    return data;
   },
 
-  async updateSettings(settings: any): Promise<void> {
-    try {
-      await fetch(`${API_BASE}/settings`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
-      });
-    } catch (err) {
-      console.warn('[API] Failed to update settings in MSSQL:', err);
-    }
+  // Owner Products
+  async getProducts(activeOnly = false): Promise<Product[]> {
+    const token = getStoredToken();
+    const res = await fetch(`${API_BASE}/products${activeOnly ? '?activeOnly=true' : ''}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Failed to fetch products');
+    return data;
   },
 
-  async updateTenant(id: string, p: any): Promise<void> {
-    try {
-      await fetch(`${API_BASE}/tenants/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(p),
-      });
-    } catch (err) {
-      console.warn('[API] Failed to update tenant in MSSQL:', err);
-    }
+  async createProduct(params: { productName: string; price: number; imageUrl?: string }): Promise<Product> {
+    const token = getStoredToken();
+    const res = await fetch(`${API_BASE}/products`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(params),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Failed to create product');
+    return data;
   },
 
-  async createTicket(ticket: any): Promise<void> {
-    try {
-      await fetch(`${API_BASE}/tickets`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(ticket),
-      });
-    } catch (err) {
-      console.warn('[API] Failed to create ticket in MSSQL:', err);
-    }
+  async updateProduct(id: number, params: { productName?: string; price?: number; imageUrl?: string; isActive?: boolean }): Promise<Product> {
+    const token = getStoredToken();
+    const res = await fetch(`${API_BASE}/products/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(params),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Failed to update product');
+    return data;
   },
 
-  async updateTicketStatus(id: string, status: string): Promise<void> {
-    try {
-      await fetch(`${API_BASE}/tickets/${id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      });
-    } catch (err) {
-      console.warn('[API] Failed to update ticket status in MSSQL:', err);
-    }
+  async toggleProduct(id: number): Promise<Product> {
+    const token = getStoredToken();
+    const res = await fetch(`${API_BASE}/products/${id}/toggle`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Failed to toggle product');
+    return data;
   },
 
-  async updateSystem(state: any): Promise<void> {
-    try {
-      await fetch(`${API_BASE}/system`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(state),
-      });
-    } catch (err) {
-      console.warn('[API] Failed to update system state in MSSQL:', err);
-    }
+  // Checkout & Orders
+  async checkout(params: {
+    idempotencyKey: string;
+    paymentMethod: 'Cash' | 'JazzCash' | 'EasyPaisa';
+    items: Array<{ productId: number; quantity: number }>;
+  }): Promise<{ message: string; order: Order }> {
+    const token = getStoredToken();
+    const res = await fetch(`${API_BASE}/orders/checkout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(params),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Checkout failed');
+    return data;
   },
 
-  async postAudit(actor: string, text: string): Promise<void> {
-    try {
-      await fetch(`${API_BASE}/audit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ actor, text }),
-      });
-    } catch (err) {
-      console.warn('[API] Failed to post audit log in MSSQL:', err);
-    }
+  async getOrders(): Promise<Order[]> {
+    const token = getStoredToken();
+    const res = await fetch(`${API_BASE}/orders`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Failed to fetch orders');
+    return data;
   },
 
-  async resetDatabase(): Promise<void> {
-    try {
-      await fetch(`${API_BASE}/reset`, { method: 'POST' });
-    } catch (err) {
-      console.warn('[API] Failed to reset database:', err);
-    }
+  async getOrderDetail(id: number): Promise<Order> {
+    const token = getStoredToken();
+    const res = await fetch(`${API_BASE}/orders/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Failed to fetch order detail');
+    return data;
+  },
+
+  // Owner Dashboard
+  async getTodayMetrics(): Promise<DashboardMetrics> {
+    const token = getStoredToken();
+    const res = await fetch(`${API_BASE}/dashboard/today`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Failed to fetch dashboard metrics');
+    return data;
+  },
+
+  // Admin APIs
+  async getAdminStats(): Promise<AdminStats> {
+    const token = getStoredToken();
+    const res = await fetch(`${API_BASE}/admin/stats`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Failed to fetch admin stats');
+    return data;
+  },
+
+  async getAdminOwners(status?: string, search?: string): Promise<any[]> {
+    const token = getStoredToken();
+    const url = new URL(`${API_BASE}/admin/owners`, window.location.origin);
+    if (status && status !== 'all') url.searchParams.set('status', status);
+    if (search) url.searchParams.set('search', search);
+
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Failed to fetch owners');
+    return data;
+  },
+
+  async approvePayment(paymentId: number): Promise<void> {
+    const token = getStoredToken();
+    const res = await fetch(`${API_BASE}/admin/payments/${paymentId}/approve`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Approval failed');
+  },
+
+  async rejectPayment(paymentId: number, reason: string): Promise<void> {
+    const token = getStoredToken();
+    const res = await fetch(`${API_BASE}/admin/payments/${paymentId}/reject`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ reason }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Rejection failed');
+  },
+
+  async blockOwner(ownerId: number, reason: string): Promise<void> {
+    const token = getStoredToken();
+    const res = await fetch(`${API_BASE}/admin/owners/${ownerId}/block`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ reason }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Block failed');
+  },
+
+  async unblockOwner(ownerId: number): Promise<void> {
+    const token = getStoredToken();
+    const res = await fetch(`${API_BASE}/admin/owners/${ownerId}/unblock`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Unblock failed');
+  },
+
+  async getAuditLogs(): Promise<any[]> {
+    const token = getStoredToken();
+    const res = await fetch(`${API_BASE}/admin/audit-logs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || 'Failed to fetch audit logs');
+    return data;
   },
 };
