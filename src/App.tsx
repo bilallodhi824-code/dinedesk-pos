@@ -1470,10 +1470,10 @@ export default function App() {
                           onClick={() => addToCart(p)}
                         >
                           <div>
-                            {p.Category && <div className="tile-cat">{p.Category}</div>}
-                            <div className="tile-name">{p.ProductName}</div>
+                            {p.Category && <div className="tile-cat label-sm">{p.Category}</div>}
+                            <div className="tile-name body-md">{p.ProductName}</div>
                           </div>
-                          <div className="tile-price">{fmtPkr(p.Price)}</div>
+                          <div className="tile-price price-md tabular-nums">{fmtPkr(p.Price)}</div>
                         </button>
                       ))}
                     </div>
@@ -1524,43 +1524,43 @@ export default function App() {
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'space-between',
-                          padding: '10px 0',
+                          padding: '12px 0',
                           borderBottom: '1px solid var(--line)',
                         }}
                       >
-                        <div style={{ flex: 1, paddingRight: 6 }}>
-                          <div style={{ fontWeight: 700, fontSize: 14 }}>{item.product.ProductName}</div>
-                          <div className="fine muted">{fmtPkr(item.product.Price)} each</div>
+                        <div style={{ flex: 1, paddingRight: 8 }}>
+                          <div className="body-md" style={{ fontWeight: 600 }}>{item.product.ProductName}</div>
+                          <div className="fine muted tabular-nums">{fmtPkr(item.product.Price)} each</div>
                         </div>
 
                         {/* Qty Controls */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <button
                             className="btn ghost sm"
-                            style={{ width: 28, height: 28, padding: 0 }}
+                            style={{ width: 28, height: 28, padding: 0, borderRadius: 'var(--r-md)' }}
                             onClick={() => updateCartQty(item.product.ProductID, -1)}
                           >
                             -
                           </button>
-                          <span style={{ fontWeight: 800, minWidth: 20, textAlign: 'center' }}>
+                          <span className="tabular-nums" style={{ fontWeight: 700, minWidth: 20, textAlign: 'center' }}>
                             {item.qty}
                           </span>
                           <button
                             className="btn ghost sm"
-                            style={{ width: 28, height: 28, padding: 0 }}
+                            style={{ width: 28, height: 28, padding: 0, borderRadius: 'var(--r-md)' }}
                             onClick={() => updateCartQty(item.product.ProductID, 1)}
                           >
                             +
                           </button>
                         </div>
 
-                        <div style={{ minWidth: 70, textAlign: 'right', fontWeight: 800, fontSize: 14 }}>
+                        <div className="price-md tabular-nums" style={{ minWidth: 70, textAlign: 'right' }}>
                           {fmtPkr(item.product.Price * item.qty)}
                         </div>
 
                         <button
                           className="btn ghost sm"
-                          style={{ padding: '0 4px', color: 'var(--muted)', marginLeft: 4 }}
+                          style={{ padding: '0 6px', color: 'var(--muted)', marginLeft: 4 }}
                           onClick={() => removeFromCart(item.product.ProductID)}
                         >
                           ✕
@@ -1627,18 +1627,18 @@ export default function App() {
                   )}
 
                   {/* Total and Checkout Action */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-                    <span style={{ fontSize: 15, fontWeight: 600 }}>Total Payable</span>
-                    <span style={{ fontSize: 24, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--f-display)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14 }}>
+                    <span className="label-lg" style={{ color: 'var(--ink)' }}>Total Payable</span>
+                    <span className="price-lg tabular-nums" style={{ color: '#000000' }}>
                       {fmtPkr(cartTotal)}
                     </span>
                   </div>
 
                   <button
-                    className="btn primary wide"
+                    className="btn primary wide label-lg"
                     disabled={cart.length === 0 || isCheckingOut}
                     onClick={handleCheckout}
-                    style={{ height: 48, fontSize: 15, fontWeight: 700 }}
+                    style={{ height: 46 }}
                   >
                     {isCheckingOut ? 'Recording Sale...' : `COMPLETE SALE (${fmtPkr(cartTotal)})`}
                   </button>
@@ -1784,7 +1784,7 @@ export default function App() {
                         <td>
                           <span className="pill neutral">{p.Category || 'General'}</span>
                         </td>
-                        <td style={{ fontWeight: 700 }}>{fmtPkr(p.Price)}</td>
+                        <td className="price-md tabular-nums">{fmtPkr(p.Price)}</td>
                         <td>
                           <span className={`pill ${p.IsActive ? 'good' : 'neutral'}`}>
                             {p.IsActive ? 'Active' : 'Deactivated'}
@@ -1929,7 +1929,7 @@ export default function App() {
                           </span>
                         </td>
                         <td>{o.TotalItems || '-'} items</td>
-                        <td style={{ fontWeight: 800 }}>{fmtPkr(o.TotalAmount)}</td>
+                        <td className="price-md tabular-nums">{fmtPkr(o.TotalAmount)}</td>
                         <td>
                           <button
                             className="btn sm"

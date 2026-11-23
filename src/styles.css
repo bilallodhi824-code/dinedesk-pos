@@ -1,111 +1,107 @@
 /* ==========================================================================
-   Byte NCo — Simple POS System (v1.0)
-   Minimal, Mature & Professional SaaS UI (Stripe / Notion Style)
-   Clean Black & White with Subtle Accents
+   Byte NCo POS — Design System (DESIGN.md)
+   Minimal, Mature & Enterprise SaaS Point-of-Sale
+   Zero Shadows • High-Contrast Neutrals • Pure White & Solid Black
    ========================================================================== */
 
 :root {
+  /* Fonts */
   --f-ui: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --f-display: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --f-mono: 'IBM Plex Mono', 'Courier New', monospace;
 
-  /* Strict Minimal Palette */
-  --bg: #F7F7F8;
-  --surface: #FFFFFF;
-  --surface-2: #F1F1F4;
-  --surface-3: #E5E7EB;
+  /* Surface & Canvas Tokens (Strict Light Mode) */
+  --bg: #f9f9fa;
+  --surface: #ffffff;
+  --surface-dim: #dadadb;
+  --surface-bright: #f9f9fa;
+  --surface-container-lowest: #ffffff;
+  --surface-container-low: #f3f3f4;
+  --surface-container: #eeeeef;
+  --surface-container-high: #e8e8e9;
+  --surface-container-highest: #e2e2e3;
+  --surface-2: #f3f3f4;
+  --surface-3: #eeeeef;
 
-  --ink: #111111;
-  --ink-secondary: #374151;
-  --muted: #6B7280;
-  --line: #E5E7EB;
-  --line-strong: #D1D5DB;
+  /* Ink / Text Tokens */
+  --ink: #1a1c1d;
+  --ink-secondary: #444748;
+  --muted: #5c5f60;
+  --on-surface: #1a1c1d;
+  --on-surface-variant: #444748;
+  --inverse-surface: #2f3132;
+  --inverse-on-surface: #f0f1f2;
 
-  /* Primary Button: Black #111111 */
-  --accent: #111111;
-  --accent-hover: #262626;
-  --accent-ink: #FFFFFF;
-  --accent-soft: #F1F1F4;
+  /* Outlines & Borders (Crisp 1px borders) */
+  --line: #e5e7eb;
+  --line-strong: #c4c7c7;
+  --outline: #747878;
+  --outline-variant: #c4c7c7;
 
-  /* Success: Green #16A34A (Strictly for Approve / Paid) */
-  --good: #16A34A;
-  --good-soft: #DCFCE7;
-  --good-ink: #FFFFFF;
+  /* Primary Brand: Solid Black #000000 */
+  --primary: #000000;
+  --on-primary: #ffffff;
+  --accent: #000000;
+  --accent-hover: #1c1b1b;
+  --accent-ink: #ffffff;
+  --accent-soft: #f3f3f4;
 
-  /* Danger: Red #DC2626 (Strictly for Delete / Late / Reject) */
-  --bad: #DC2626;
-  --bad-soft: #FEE2E2;
-  --bad-ink: #FFFFFF;
+  /* Secondary Actions: Light Grey #f3f3f4 */
+  --secondary: #5c5f60;
+  --on-secondary: #ffffff;
+  --secondary-container: #f3f4f6;
+  --on-secondary-container: #606365;
 
-  /* Warning: Amber */
-  --warn: #D97706;
-  --warn-soft: #FEF3C7;
+  /* Semantic Statuses (Strictly for Approve / Paid & Delete / Reject) */
+  --good: #16a34a;
+  --good-soft: #dcfce7;
+  --good-ink: #ffffff;
+  --bad: #dc2626;
+  --bad-soft: #ffdad6;
+  --bad-ink: #ffffff;
+  --warn: #d97706;
+  --warn-soft: #fef3c7;
 
-  /* Payment Tenders */
-  --cash: #111111;
-  --cash-soft: #F1F1F4;
-  --jazzcash: #991B1B;
-  --jazzcash-soft: #FEE2E2;
-  --easypaisa: #15803D;
-  --easypaisa-soft: #DCFCE7;
+  /* Tenders */
+  --cash: #000000;
+  --cash-soft: #f3f3f4;
+  --jazzcash: #991b1b;
+  --jazzcash-soft: #ffdad6;
+  --easypaisa: #15803d;
+  --easypaisa-soft: #dcfce7;
 
-  /* Admin portal bar */
-  --adm: #111111;
-  --adm-soft: #F1F1F4;
+  /* Admin rail bar */
+  --adm: #000000;
+  --adm-soft: #f3f3f4;
 
-  /* Navigation Sidebar */
-  --rail: #111111;
-  --rail-adm: #111111;
-  --rail-ink: #F9FAFB;
-  --rail-muted: #9CA3AF;
-  --rail-line: #1F2937;
+  /* Sidebar Navigation Rail */
+  --rail: #000000;
+  --rail-adm: #000000;
+  --rail-ink: #f0f1f2;
+  --rail-muted: #858383;
+  --rail-line: #1c1b1b;
   --rail-hover: rgba(255, 255, 255, 0.08);
   --rail-active: rgba(255, 255, 255, 0.16);
 
   /* Thermal Receipt Paper */
-  --paper: #FFFFFF;
-  --paper-ink: #111111;
-  --paper-mute: #4B5563;
-  --paper-line: #9CA3AF;
+  --paper: #ffffff;
+  --paper-ink: #000000;
+  --paper-mute: #5c5f60;
+  --paper-line: #747878;
 
-  /* Crisp SaaS Elevation */
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
-  --shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.03);
-  --shadow-slip: 0 4px 12px rgba(0, 0, 0, 0.08);
+  /* Shape Radii */
+  --r-sm: 0.125rem; /* 2px */
+  --r-default: 0.25rem; /* 4px */
+  --r-md: 0.375rem; /* 6px */
+  --r: 0.5rem; /* 8px - buttons, inputs, tiles */
+  --r-lg: 0.75rem; /* 12px - cards, panels, modals */
+  --r-full: 9999px;
 
-  --r: 8px;
-  --r-sm: 6px;
-  --r-lg: 12px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #090e17;
-    --surface: #111827;
-    --surface-2: #1e293b;
-    --surface-3: #334155;
-
-    --ink: #f8fafc;
-    --ink-secondary: #cbd5e1;
-    --muted: #94a3b8;
-    --line: #1e293b;
-    --line-strong: #334155;
-
-    --accent: #10b981;
-    --accent-hover: #059669;
-    --accent-soft: #064e3b;
-
-    --adm: #3b82f6;
-    --adm-soft: #172554;
-
-    --rail: #050811;
-    --rail-adm: #03060a;
-    --rail-line: #1e293b;
-
-    --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.35);
-    color-scheme: dark;
-  }
+  /* STRICT ZERO SHADOW RULE: Zero box-shadows across all components */
+  --shadow-sm: none;
+  --shadow: none;
+  --shadow-lg: none;
+  --shadow-slip: none;
 }
 
 *,
@@ -120,25 +116,132 @@ body,
   height: 100%;
   margin: 0;
   padding: 0;
+  background: var(--bg);
+  color: var(--ink);
 }
 
 body {
-  background: var(--bg);
-  color: var(--ink);
-  font: 14px/1.5 var(--f-ui);
+  font: 14px/20px var(--f-ui);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-h1,
-h2,
-h3,
-h4 {
+/* ==========================================================================
+   Typography Standards
+   ========================================================================== */
+
+h1, h2, h3, h4, h5, h6 {
   font-family: var(--f-display);
   letter-spacing: -0.015em;
   margin: 0;
   color: var(--ink);
 }
+
+.headline-lg {
+  font-family: var(--f-display);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 32px;
+  letter-spacing: -0.015em;
+}
+
+.headline-md {
+  font-family: var(--f-display);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 26px;
+  letter-spacing: -0.01em;
+}
+
+.headline-sm {
+  font-family: var(--f-display);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.price-lg {
+  font-family: var(--f-ui);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 28px;
+  font-variant-numeric: tabular-nums;
+}
+
+.price-md {
+  font-family: var(--f-ui);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+  font-variant-numeric: tabular-nums;
+}
+
+.body-lg {
+  font-family: var(--f-ui);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+.body-md {
+  font-family: var(--f-ui);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.body-sm {
+  font-family: var(--f-ui);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+}
+
+.label-lg {
+  font-family: var(--f-ui);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.label-md {
+  font-family: var(--f-ui);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.label-sm {
+  font-family: var(--f-ui);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: 0.02em;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.mono {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.fine {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted);
+  margin: 0;
+}
+
+/* ==========================================================================
+   Interactive Controls: Buttons & Inputs (Zero Shadows)
+   ========================================================================== */
 
 button,
 input,
@@ -155,85 +258,91 @@ button {
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: 2px solid #000000;
+  outline-offset: 1px;
 }
 
-.mono {
-  font-family: var(--f-mono);
-}
-
-.muted {
-  color: var(--muted);
-}
-
-.fine {
-  font-size: 12px;
-  color: var(--muted);
-  margin: 0;
-}
-
-/* ------------------------------ Buttons & Inputs ------------------------------ */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  height: 42px;
-  padding: 0 18px;
+  height: 40px;
+  padding: 0 16px;
   border-radius: var(--r);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink);
-  font-weight: 600;
+  font-weight: 500;
   font-size: 14px;
-  transition: all 0.15s ease;
+  line-height: 20px;
+  box-shadow: none !important;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
   user-select: none;
 }
 
 .btn:hover:not(:disabled) {
-  background: var(--surface-2);
-  border-color: var(--muted);
+  background: var(--surface-container-low);
+  border-color: var(--line-strong);
 }
 
 .btn:active:not(:disabled) {
-  transform: scale(0.98);
+  background: var(--surface-container);
 }
 
 .btn:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
+/* Primary Button: Solid #000000 with #ffffff text */
 .btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: #000000;
+  border-color: #000000;
   color: #ffffff;
+  font-weight: 600;
 }
 
 .btn.primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
+  background: #1c1b1b;
+  border-color: #1c1b1b;
 }
 
 .btn.ghost {
   background: transparent;
   border-color: transparent;
+  color: var(--ink);
 }
 
 .btn.ghost:hover:not(:disabled) {
-  background: var(--surface-2);
+  background: var(--surface-container-low);
+  border-color: var(--line);
 }
 
+/* Semantic Success Button: Strictly for Approve actions */
+.btn.success {
+  background: var(--good);
+  color: #ffffff;
+  border-color: var(--good);
+  font-weight: 600;
+}
+
+.btn.success:hover:not(:disabled) {
+  background: #15803d;
+  border-color: #15803d;
+}
+
+/* Semantic Danger Button: Strictly for Delete / Reject actions */
 .btn.danger {
   background: var(--bad);
   color: #ffffff;
   border-color: var(--bad);
+  font-weight: 600;
 }
 
 .btn.danger:hover:not(:disabled) {
-  background: #B91C1C;
-  border-color: #B91C1C;
+  background: #b91c1c;
+  border-color: #b91c1c;
 }
 
 .btn.danger-outline {
@@ -246,22 +355,11 @@ button {
   background: var(--bad-soft);
 }
 
-.btn.success {
-  background: var(--good);
-  color: #ffffff;
-  border-color: var(--good);
-}
-
-.btn.success:hover:not(:disabled) {
-  background: #15803D;
-  border-color: #15803D;
-}
-
 .btn.sm {
   height: 32px;
   padding: 0 12px;
   font-size: 13px;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-md);
 }
 
 .btn.wide {
@@ -269,26 +367,29 @@ button {
   height: 46px;
 }
 
+/* Input Fields: Pure White with 1px border, Zero Glowing Rings */
 .input {
   width: 100%;
-  height: 42px;
+  height: 40px;
   padding: 0 14px;
   border-radius: var(--r);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink);
   font-size: 14px;
-  transition: border-color 0.15s ease;
+  line-height: 20px;
+  box-shadow: none !important;
+  transition: border-color 0.12s ease;
 }
 
 .input:focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: #000000;
+  box-shadow: none !important;
 }
 
 .input.sm {
-  height: 34px;
+  height: 32px;
   font-size: 13px;
   padding: 0 10px;
 }
@@ -296,19 +397,23 @@ button {
 .label {
   display: block;
   font-size: 12.5px;
-  font-weight: 600;
+  font-weight: 500;
+  line-height: 16px;
   color: var(--ink-secondary);
-  margin-bottom: 5px;
+  margin-bottom: 6px;
 }
 
-/* ------------------------------ Pills & Badges ------------------------------ */
+/* ==========================================================================
+   Pills & Badges (0.25rem / 4px radius)
+   ========================================================================== */
+
 .pill {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   height: 24px;
-  padding: 0 10px;
-  border-radius: 999px;
+  padding: 0 8px;
+  border-radius: var(--r-default);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.01em;
@@ -317,21 +422,25 @@ button {
 .pill.good {
   background: var(--good-soft);
   color: var(--good);
+  border: 1px solid rgba(22, 163, 74, 0.2);
 }
 
 .pill.warn {
   background: var(--warn-soft);
   color: var(--warn);
+  border: 1px solid rgba(217, 119, 6, 0.2);
 }
 
 .pill.bad {
   background: var(--bad-soft);
   color: var(--bad);
+  border: 1px solid rgba(220, 38, 38, 0.2);
 }
 
 .pill.neutral {
-  background: var(--surface-2);
+  background: var(--surface-container-low);
   color: var(--muted);
+  border: 1px solid var(--line);
 }
 
 /* Tender Badges */
@@ -339,32 +448,38 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 8px;
-  border-radius: 6px;
+  padding: 2px 8px;
+  border-radius: var(--r-default);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .tender-pill.cash {
   background: var(--cash-soft);
   color: var(--cash);
+  border: 1px solid var(--line);
 }
 
 .tender-pill.jazzcash {
   background: var(--jazzcash-soft);
   color: var(--jazzcash);
+  border: 1px solid rgba(153, 27, 27, 0.2);
 }
 
 .tender-pill.easypaisa {
   background: var(--easypaisa-soft);
   color: var(--easypaisa);
+  border: 1px solid rgba(21, 128, 61, 0.2);
 }
 
-/* ------------------------------ App Layout ------------------------------ */
+/* ==========================================================================
+   Application Layout (High-Contrast Sidebar & Header)
+   ========================================================================== */
+
 .shell {
   display: grid;
   grid-template-columns: 240px 1fr;
-  grid-template-rows: 64px 1fr;
+  grid-template-rows: 60px 1fr;
   height: 100vh;
   overflow: hidden;
   background: var(--bg);
@@ -384,7 +499,8 @@ button {
 
 .topbar h1 {
   font-size: 18px;
-  font-weight: 800;
+  font-weight: 700;
+  line-height: 26px;
 }
 
 .top-actions {
@@ -408,30 +524,31 @@ button {
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 64px;
+  height: 60px;
   padding: 0 20px;
   border-bottom: 1px solid var(--rail-line);
 }
 
 .logo-badge {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  background: var(--accent);
-  color: #fff;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-md);
+  background: #ffffff;
+  color: #000000;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 900;
-  font-size: 17px;
+  font-weight: 800;
+  font-size: 15px;
   font-family: var(--f-display);
 }
 
 .logo-text strong {
   display: block;
-  font-size: 16px;
-  font-weight: 800;
+  font-size: 15px;
+  font-weight: 700;
   line-height: 1.2;
+  color: #ffffff;
 }
 
 .logo-text small {
@@ -443,7 +560,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 16px 12px;
+  padding: 16px 10px;
   flex: 1;
 }
 
@@ -451,13 +568,13 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 44px;
-  padding: 0 14px;
-  border-radius: var(--r);
+  height: 42px;
+  padding: 0 12px;
+  border-radius: var(--r-md);
   color: var(--rail-muted);
-  font-weight: 600;
-  font-size: 14px;
-  transition: all 0.15s ease;
+  font-weight: 500;
+  font-size: 13.5px;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 .nav-btn:hover {
@@ -468,14 +585,14 @@ button {
 .nav-btn.active {
   background: var(--rail-active);
   color: #ffffff;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .nav-btn .badge {
-  background: var(--accent);
-  color: #fff;
-  border-radius: 999px;
-  padding: 2px 7px;
+  background: #ffffff;
+  color: #000000;
+  border-radius: var(--r-default);
+  padding: 1px 6px;
   font-size: 11px;
   font-weight: 700;
 }
@@ -493,12 +610,15 @@ button {
   margin: 0 auto;
 }
 
-/* ------------------------------ Cards & KPIs ------------------------------ */
+/* ==========================================================================
+   Cards & KPIs (Pure White, 1px Border, Zero Drop Shadow)
+   ========================================================================== */
+
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: none !important;
 }
 
 .kpis {
@@ -512,28 +632,32 @@ button {
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   padding: 20px;
-  box-shadow: var(--shadow-sm);
+  box-shadow: none !important;
   display: flex;
   flex-direction: column;
 }
 
 .kpi-l {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 500;
   color: var(--muted);
   margin-bottom: 6px;
 }
 
 .kpi-v {
-  font-size: 26px;
-  font-weight: 800;
+  font-size: 24px;
+  font-weight: 700;
   font-family: var(--f-display);
   color: var(--ink);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
   margin-bottom: 4px;
 }
 
-/* ------------------------------ Tables ------------------------------ */
+/* ==========================================================================
+   Tables (Zero Shadows, Clean 1px Dividers)
+   ========================================================================== */
+
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -542,28 +666,34 @@ button {
 
 .table th {
   padding: 12px 16px;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--muted);
   border-bottom: 1px solid var(--line);
-  background: var(--surface-2);
+  background: var(--surface-container-low);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .table td {
   padding: 14px 16px;
   border-bottom: 1px solid var(--line);
   font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 .table tr:hover td {
-  background: var(--surface-2);
+  background: var(--surface-container-low);
 }
 
-/* ------------------------------ POS 2-Column Register ------------------------------ */
+/* ==========================================================================
+   POS 2-Column Register (8-Column Grid Catalog / 4-Column Cart)
+   ========================================================================== */
+
 .two {
   display: grid;
   grid-template-columns: 1fr 380px;
-  gap: 18px;
+  gap: 16px;
   height: 100%;
 }
 
@@ -571,33 +701,37 @@ button {
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  padding-bottom: 10px;
+  padding-bottom: 8px;
   margin-bottom: 12px;
   scrollbar-width: thin;
 }
 
 .category-chip {
   padding: 6px 14px;
-  border-radius: 999px;
-  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink-secondary);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   white-space: nowrap;
-  transition: all 0.15s ease;
+  box-shadow: none !important;
+  transition: all 0.12s ease;
 }
 
 .category-chip:hover {
-  background: var(--surface-2);
+  background: var(--surface-container-low);
+  border-color: var(--line-strong);
 }
 
 .category-chip.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: #000000;
+  border-color: #000000;
+  color: #ffffff;
+  font-weight: 600;
 }
 
+/* Catalog Product Tiles (Zero Shadows, Crisp 1px Outline, Zero Hover Lift) */
 .tiles {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
@@ -607,50 +741,52 @@ button {
 .tile {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--r-lg);
+  border-radius: var(--r);
   padding: 16px;
   text-align: left;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   min-height: 105px;
-  box-shadow: var(--shadow-sm);
-  transition: all 0.15s ease;
+  box-shadow: none !important;
+  transform: none !important;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
   position: relative;
   overflow: hidden;
 }
 
 .tile:hover {
-  border-color: var(--accent);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow);
+  border-color: #000000;
+  background: var(--surface-container-low);
 }
 
 .tile:active {
-  transform: scale(0.97);
+  background: var(--surface-container);
 }
 
 .tile-cat {
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.03em;
   margin-bottom: 4px;
 }
 
 .tile-name {
-  font-weight: 700;
-  font-size: 15px;
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 20px;
   color: var(--ink);
-  line-height: 1.3;
 }
 
 .tile-price {
-  font-size: 17px;
-  font-weight: 800;
-  font-family: var(--f-display);
-  color: var(--accent);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+  font-family: var(--f-ui);
+  font-variant-numeric: tabular-nums;
+  color: #000000;
   margin-top: 8px;
 }
 
@@ -663,23 +799,29 @@ button {
 }
 
 .tender-btn {
-  height: 42px;
+  height: 40px;
   border-radius: var(--r);
-  border: 2px solid var(--line);
+  border: 1px solid var(--line);
   background: var(--surface);
-  font-weight: 700;
+  font-weight: 600;
   font-size: 13px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  transition: all 0.15s ease;
+  box-shadow: none !important;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+.tender-btn:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-container-low);
 }
 
 .tender-btn.active.cash {
-  border-color: var(--cash);
-  background: var(--cash-soft);
-  color: var(--cash);
+  border-color: #000000;
+  background: #000000;
+  color: #ffffff;
 }
 
 .tender-btn.active.jazzcash {
@@ -703,18 +845,23 @@ button {
 
 .cash-chip {
   padding: 4px 10px;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-md);
   background: var(--surface);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
+  box-shadow: none !important;
 }
 
 .cash-chip:hover {
-  background: var(--surface-3);
+  background: var(--surface-container-low);
+  border-color: #000000;
 }
 
-/* ------------------------------ Auth Screens ------------------------------ */
+/* ==========================================================================
+   Auth Screens (Clean Card, Zero Shadow)
+   ========================================================================== */
+
 .auth-wrap {
   display: flex;
   min-height: 100vh;
@@ -731,7 +878,7 @@ button {
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   padding: 32px;
-  box-shadow: var(--shadow-lg);
+  box-shadow: none !important;
 }
 
 .auth-brand {
@@ -747,25 +894,33 @@ button {
 .tab {
   flex: 1;
   padding: 10px 14px;
-  font-weight: 600;
+  font-weight: 500;
   font-size: 13.5px;
   color: var(--muted);
   border-bottom: 2px solid transparent;
   text-align: center;
+  transition: all 0.12s ease;
+}
+
+.tab:hover {
+  color: var(--ink);
 }
 
 .tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-  font-weight: 700;
+  color: #000000;
+  border-bottom-color: #000000;
+  font-weight: 600;
 }
 
-/* ------------------------------ Modals & Scrim ------------------------------ */
+/* ==========================================================================
+   Modals & Scrim (Zero Shadows, 1px Border, 0.75rem Radius)
+   ========================================================================== */
+
 .scrim {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.65);
-  backdrop-filter: blur(4px);
+  background: rgba(17, 17, 17, 0.25);
+  backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -779,21 +934,8 @@ button {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-lg);
+  box-shadow: none !important;
   overflow: hidden;
-  animation: modalIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@keyframes modalIn {
-  from {
-    opacity: 0;
-    transform: scale(0.96) translateY(6px);
-  }
-
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
 }
 
 .modal-h {
@@ -802,6 +944,7 @@ button {
   justify-content: space-between;
   padding: 16px 20px;
   border-bottom: 1px solid var(--line);
+  background: var(--surface);
 }
 
 .modal-b {
@@ -814,7 +957,7 @@ button {
   justify-content: flex-end;
   gap: 10px;
   padding: 14px 20px;
-  background: var(--surface-2);
+  background: var(--surface-container-low);
   border-top: 1px solid var(--line);
 }
 
@@ -829,60 +972,52 @@ button {
 .alert.bad {
   background: var(--bad-soft);
   color: var(--bad);
-  border: 1px solid var(--bad);
+  border: 1px solid rgba(220, 38, 38, 0.2);
 }
 
 .alert.warn {
   background: var(--warn-soft);
   color: var(--warn);
-  border: 1px solid var(--warn);
+  border: 1px solid rgba(217, 119, 6, 0.2);
 }
 
 .alert.good {
   background: var(--good-soft);
   color: var(--good);
-  border: 1px solid var(--good);
+  border: 1px solid rgba(22, 163, 74, 0.2);
 }
 
-/* Global Toast */
+/* Global Toast Notification */
 .toast {
   position: fixed;
   bottom: 24px;
   right: 24px;
-  background: var(--ink);
+  background: #000000;
   color: #ffffff;
   padding: 12px 20px;
   border-radius: var(--r);
-  box-shadow: var(--shadow-lg);
-  font-weight: 600;
+  border: 1px solid var(--line-strong);
+  box-shadow: none !important;
+  font-weight: 500;
   font-size: 13.5px;
   z-index: 10000;
-  animation: toastIn 0.2s ease;
 }
 
-@keyframes toastIn {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
+/* ==========================================================================
+   Thermal Slip Paper Layouts (58mm & 80mm)
+   ========================================================================== */
 
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* ------------------------------ Thermal Print Layouts (58mm & 80mm) ------------------------------ */
 .thermal-slip-box {
   background: var(--paper);
   color: var(--paper-ink);
   font-family: var(--f-mono);
-  box-shadow: var(--shadow-slip);
-  border: 1px solid var(--paper-line);
-  border-radius: 4px;
+  box-shadow: none !important;
+  border: 1px solid var(--line);
+  border-radius: var(--r-default);
   padding: 16px 14px;
   margin: 0 auto;
   line-height: 1.4;
+  font-variant-numeric: tabular-nums;
 }
 
 .thermal-slip-box.size-58mm {
@@ -897,7 +1032,7 @@ button {
 
 .thermal-slip-header {
   text-align: center;
-  border-bottom: 1px dashed var(--paper-line);
+  border-bottom: 1px dashed var(--line-strong);
   padding-bottom: 10px;
   margin-bottom: 10px;
 }
@@ -919,20 +1054,19 @@ button {
 }
 
 .thermal-slip-divider {
-  border-top: 1px dashed var(--paper-line);
+  border-top: 1px dashed var(--line-strong);
   margin: 8px 0;
 }
 
 .thermal-slip-footer {
   text-align: center;
-  border-top: 1px dashed var(--paper-line);
+  border-top: 1px dashed var(--line-strong);
   padding-top: 10px;
   margin-top: 10px;
   font-size: 11px;
 }
 
 @media print {
-
   body,
   html {
     background: #ffffff !important;
@@ -951,6 +1085,7 @@ button {
   .toast,
   .mobile-cart-float,
   .pos-mobile-tabs,
+  .pos-mobile-cart-float,
   .scrim {
     display: none !important;
   }
@@ -985,11 +1120,24 @@ button {
   }
 }
 
-/* ------------------------------ Responsive Mobile Viewport ------------------------------ */
-@media (max-width: 768px) {
+/* ==========================================================================
+   Responsive Viewport Scaling (Desktop >= 1024px, Tablet 768-1023, Mobile < 768)
+   ========================================================================== */
+
+@media (max-width: 1023px) and (min-width: 768px) {
+  .shell {
+    grid-template-columns: 200px 1fr;
+  }
+
+  .two {
+    grid-template-columns: 1fr 320px;
+  }
+}
+
+@media (max-width: 767px) {
   .shell {
     grid-template-columns: 1fr;
-    grid-template-rows: 56px 1fr 62px;
+    grid-template-rows: 56px 1fr 58px;
   }
 
   .topbar {
@@ -1007,7 +1155,7 @@ button {
     grid-column: 1;
     grid-row: 3;
     flex-direction: row;
-    height: 62px;
+    height: 58px;
     border-right: none;
     border-top: 1px solid var(--rail-line);
   }
@@ -1027,10 +1175,10 @@ button {
   .nav-btn {
     flex-direction: column;
     justify-content: center;
-    height: 52px;
-    padding: 0 8px;
+    height: 48px;
+    padding: 0 6px;
     font-size: 11px;
-    gap: 3px;
+    gap: 2px;
   }
 
   .two {
@@ -1044,7 +1192,7 @@ button {
   .pos-mobile-cart-float {
     display: block !important;
     position: fixed;
-    bottom: 74px;
+    bottom: 70px;
     left: 16px;
     right: 16px;
     z-index: 100;
