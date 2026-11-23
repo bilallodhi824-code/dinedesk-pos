@@ -7,7 +7,7 @@ const router = Router();
 // POST /api/v1/orders/checkout (Atomic idempotent transactional checkout)
 router.post('/checkout', authApprovedOwner, async (req: AuthRequest, res: Response) => {
   try {
-    const { idempotencyKey, paymentMethod, items } = req.body;
+    const { idempotencyKey, paymentMethod, items, cashReceived, changeDue } = req.body;
 
     if (!idempotencyKey) {
       res.status(400).json({ error: { code: 'MISSING_IDEMPOTENCY_KEY', message: 'An idempotency key is required.' } });
@@ -32,7 +32,7 @@ router.post('/checkout', authApprovedOwner, async (req: AuthRequest, res: Respon
       .input('key', sql.VarChar, idempotencyKey)
       .input('uid', sql.Int, userId)
       .query(`
-        SELECT o.OrderID, o.OrderNo, o.TotalAmount, o.PaymentMethod, o.OrderStatus, o.OrderDate
+        SELECT o.OrderID, o.OrderNo, o.TotalAmount, o.PaymentMethod, o.OrderStatus, o.OrderDate, o.CashReceived, o.ChangeDue
         FROM Orders o
         WHERE o.IdempotencyKey = @key AND o.UserID = @uid
       `);
@@ -47,6 +47,8 @@ router.post('/checkout', authApprovedOwner, async (req: AuthRequest, res: Respon
         message: 'Order already processed (idempotent response).',
         order: {
           ...ord,
+          cartName: req.user?.cartName,
+          ownerName: req.user?.ownerName,
           items: itemsRes.recordset,
         },
       });
@@ -128,6 +130,10 @@ router.post('/checkout', authApprovedOwner, async (req: AuthRequest, res: Respon
     const nextSeq = (countRes.recordset[0]?.cnt || 0) + 1;
     const orderNo = `#${String(100 + nextSeq).padStart(6, '0')}`;
 
+    // Tender calculation
+    const numCashReceived = paymentMethod === 'Cash' && cashReceived !== undefined ? Number(cashReceived) : null;
+    const numChangeDue = paymentMethod === 'Cash' && numCashReceived !== null ? Math.max(0, numCashReceived - grandTotal) : null;
+
     // 4. Atomic Transaction: Insert Order and OrderItems
     const tx = new sqlDriver.Transaction(p);
     await tx.begin();
@@ -139,10 +145,12 @@ router.post('/checkout', authApprovedOwner, async (req: AuthRequest, res: Respon
         .input('total', sql.Decimal(18, 2), grandTotal)
         .input('method', sql.VarChar, paymentMethod)
         .input('key', sql.VarChar, idempotencyKey)
+        .input('cashRec', sql.Decimal(18, 2), numCashReceived)
+        .input('chg', sql.Decimal(18, 2), numChangeDue)
         .query(`
-          INSERT INTO Orders (UserID, OrderNo, TotalAmount, PaymentMethod, OrderStatus, IdempotencyKey)
-          OUTPUT INSERTED.OrderID, INSERTED.OrderNo, INSERTED.TotalAmount, INSERTED.PaymentMethod, INSERTED.OrderStatus, INSERTED.OrderDate
-          VALUES (@uid, @orderNo, @total, @method, 'Completed', @key);
+          INSERT INTO Orders (UserID, OrderNo, TotalAmount, PaymentMethod, OrderStatus, IdempotencyKey, CashReceived, ChangeDue)
+          OUTPUT INSERTED.OrderID, INSERTED.OrderNo, INSERTED.TotalAmount, INSERTED.PaymentMethod, INSERTED.OrderStatus, INSERTED.OrderDate, INSERTED.CashReceived, INSERTED.ChangeDue
+          VALUES (@uid, @orderNo, @total, @method, 'Completed', @key, @cashRec, @chg);
         `);
 
       const createdOrder = orderInsert.recordset[0];
@@ -188,17 +196,31 @@ router.post('/checkout', authApprovedOwner, async (req: AuthRequest, res: Respon
 // GET /api/v1/orders (Order history for owner)
 router.get('/', authApprovedOwner, async (req: AuthRequest, res: Response) => {
   try {
+    const { method, search } = req.query;
     const p = await getDbPool();
-    const result = await p.request()
-      .input('uid', sql.Int, req.user?.userId)
-      .query(`
-        SELECT o.OrderID, o.OrderNo, o.TotalAmount, o.PaymentMethod, o.OrderStatus, o.OrderDate,
-               (SELECT COUNT(*) FROM OrderItems i WHERE i.OrderID = o.OrderID) as TotalItems
-        FROM Orders o
-        WHERE o.UserID = @uid
-        ORDER BY o.OrderDate DESC
-      `);
 
+    let query = `
+      SELECT o.OrderID, o.OrderNo, o.TotalAmount, o.PaymentMethod, o.OrderStatus, o.OrderDate, o.CashReceived, o.ChangeDue,
+             (SELECT COUNT(*) FROM OrderItems i WHERE i.OrderID = o.OrderID) as TotalItems
+      FROM Orders o
+      WHERE o.UserID = @uid
+    `;
+
+    const request = p.request().input('uid', sql.Int, req.user?.userId);
+
+    if (method && typeof method === 'string' && method !== 'All') {
+      query += ` AND o.PaymentMethod = @method`;
+      request.input('method', sql.VarChar, method);
+    }
+
+    if (search && typeof search === 'string' && search.trim()) {
+      query += ` AND o.OrderNo LIKE @search`;
+      request.input('search', sql.VarChar, `%${search.trim()}%`);
+    }
+
+    query += ` ORDER BY o.OrderDate DESC`;
+
+    const result = await request.query(query);
     res.json(result.recordset);
   } catch (err: any) {
     console.error('[ORDERS_LIST_ERR]', err);
@@ -216,7 +238,7 @@ router.get('/:id', authApprovedOwner, async (req: AuthRequest, res: Response) =>
       .input('oid', sql.Int, orderId)
       .input('uid', sql.Int, req.user?.userId)
       .query(`
-        SELECT o.OrderID, o.OrderNo, o.TotalAmount, o.PaymentMethod, o.OrderStatus, o.OrderDate
+        SELECT o.OrderID, o.OrderNo, o.TotalAmount, o.PaymentMethod, o.OrderStatus, o.OrderDate, o.CashReceived, o.ChangeDue
         FROM Orders o
         WHERE o.OrderID = @oid AND o.UserID = @uid
       `);

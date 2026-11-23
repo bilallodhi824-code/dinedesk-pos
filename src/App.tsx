@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api, User, Product, Order, DashboardMetrics, PaymentSubmission, AdminStats } from './api';
 
-// Utility for formatting PKR currency
+// Currency Formatter for PKR
 function fmtPkr(amount: number): string {
   return 'Rs. ' + (amount || 0).toLocaleString('en-PK', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
-// Format date in Asia/Karachi friendly format
+// Format date in Asia/Karachi format
 function fmtDateTime(dateStr?: string | number): string {
   if (!dateStr) return '';
   const d = new Date(dateStr);
@@ -23,6 +23,60 @@ function fmtDateTime(dateStr?: string | number): string {
 function generateUuid(): string {
   return 'idemp-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
 }
+
+// ------------------------------ Crisp Clean SVG Icons ------------------------------
+const Icon = {
+  Cart: () => (
+    <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+      <circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" /><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+    </svg>
+  ),
+  Store: () => (
+    <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />
+    </svg>
+  ),
+  Dashboard: () => (
+    <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+      <rect x="3" y="3" width="7" height="9" rx="1" /><rect x="14" y="3" width="7" height="5" rx="1" /><rect x="14" y="12" width="7" height="9" rx="1" /><rect x="3" y="16" width="7" height="5" rx="1" />
+    </svg>
+  ),
+  Receipt: () => (
+    <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+      <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1Z" /><line x1="8" y1="8" x2="16" y2="8" /><line x1="8" y1="12" x2="16" y2="12" /><line x1="8" y1="16" x2="13" y2="16" />
+    </svg>
+  ),
+  Tag: () => (
+    <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+      <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" /><line x1="7" y1="7" x2="7.01" y2="7" />
+    </svg>
+  ),
+  User: () => (
+    <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+    </svg>
+  ),
+  Printer: () => (
+    <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+      <polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" />
+    </svg>
+  ),
+  Trash: () => (
+    <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+      <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    </svg>
+  ),
+  Search: () => (
+    <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  ),
+  Check: () => (
+    <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  ),
+};
 
 export default function App() {
   // Auth state
@@ -47,41 +101,49 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'pos' | 'dashboard' | 'products' | 'orders' | 'status'>('pos');
   const [toastMsg, setToastMsg] = useState('');
 
-  // Owner POS state
+  // POS State
   const [products, setProducts] = useState<Product[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [posSearch, setPosSearch] = useState<string>('');
   const [cart, setCart] = useState<Array<{ product: Product; qty: number }>>([]);
   const [payMethod, setPayMethod] = useState<'Cash' | 'JazzCash' | 'EasyPaisa'>('Cash');
+  const [cashTendered, setCashTendered] = useState<string>('');
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState('');
   const [mobilePosTab, setMobilePosTab] = useState<'menu' | 'cart'>('menu');
 
-  // Receipt Modal state
+  // Receipt Modal State
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
   const [receiptCopy, setReceiptCopy] = useState<'customer' | 'shop' | 'both'>('customer');
   const [receiptWidth, setReceiptWidth] = useState<'58mm' | '80mm'>('80mm');
 
-  // Owner Dashboard state
+  // Owner Dashboard State
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
 
-  // Owner Products state
+  // Owner Products Management State
   const [showAddProdModal, setShowAddProdModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [newProdName, setNewProdName] = useState('');
   const [newProdPrice, setNewProdPrice] = useState('');
+  const [newProdCategory, setNewProdCategory] = useState('General');
   const [newProdImg, setNewProdImg] = useState('');
   const [prodSubmitting, setProdSubmitting] = useState(false);
 
-  // Owner Orders history
+  // Owner Orders History State
   const [orders, setOrders] = useState<Order[]>([]);
+  const [orderMethodFilter, setOrderMethodFilter] = useState('All');
+  const [orderSearchQuery, setOrderSearchQuery] = useState('');
 
-  // Owner Status / Payment submission state
+  // Owner Status & Payment Submission State
   const [paymentSubmissions, setPaymentSubmissions] = useState<PaymentSubmission[]>([]);
   const [payAmount, setPayAmount] = useState('500');
   const [paySubmitMethod, setPaySubmitMethod] = useState('JazzCash');
   const [payRef, setPayRef] = useState('');
+  const [payProofBase64, setPayProofBase64] = useState<string>('');
   const [payInstructions, setPayInstructions] = useState('');
   const [submittingPayment, setSubmittingPayment] = useState(false);
 
-  // Admin Workspace state
+  // Admin Workspace State
   const [adminStats, setAdminStats] = useState<AdminStats | null>(null);
   const [adminOwners, setAdminOwners] = useState<any[]>([]);
   const [adminStatusFilter, setAdminStatusFilter] = useState<string>('all');
@@ -92,16 +154,17 @@ export default function App() {
   const [adminActionLoading, setAdminActionLoading] = useState(false);
   const [adminAuditLogs, setAdminAuditLogs] = useState<any[]>([]);
   const [adminActiveTab, setAdminActiveTab] = useState<'owners' | 'audit'>('owners');
+  const [lightboxImg, setLightboxImg] = useState<string | null>(null);
 
   const toastTimerRef = useRef<any>(null);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToastMsg(''), 3000);
+    toastTimerRef.current = setTimeout(() => setToastMsg(''), 3200);
   };
 
-  // Check backend health and restore user session on mount
+  // Check health and authenticate session
   useEffect(() => {
     api.checkHealth().then(isOk => setDbLive(isOk));
 
@@ -114,7 +177,7 @@ export default function App() {
     }).catch(() => setLoadingUser(false));
   }, []);
 
-  // Fetch data whenever user or status changes
+  // Sync data on user change
   useEffect(() => {
     if (!user) return;
 
@@ -152,7 +215,6 @@ export default function App() {
       ]);
       setPaymentSubmissions(statusRes.payments || []);
       setPayInstructions(instRes.instructions || '');
-      // If status changed to Approved on server, update local user state
       if (statusRes.ownerStatus && statusRes.ownerStatus !== user?.status) {
         setUser(prev => prev ? { ...prev, status: statusRes.ownerStatus as any } : null);
       }
@@ -176,20 +238,7 @@ export default function App() {
     }
   };
 
-  // Refresh status button for Pending/Rejected owners
-  const handleRefreshStatus = async () => {
-    try {
-      const updatedUser = await api.getMe();
-      if (updatedUser) {
-        setUser(updatedUser);
-        showToast('Account status refreshed: ' + updatedUser.status);
-      }
-    } catch {
-      showToast('Could not reach server.');
-    }
-  };
-
-  // Auth Submit (Login / Register)
+  // Auth Handling
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
@@ -199,9 +248,8 @@ export default function App() {
       if (authMode === 'login') {
         const res = await api.login(loginId, loginPass);
         setUser(res.user);
-        showToast('Welcome, ' + res.user.ownerName + '!');
+        showToast('Welcome back, ' + res.user.ownerName + '!');
       } else {
-        // Register (Cart Owner only)
         const res = await api.register({
           ownerName: regName,
           mobile: regMobile,
@@ -210,7 +258,7 @@ export default function App() {
           password: regPass,
         });
         setUser(res.user);
-        showToast('Account registered! Status: Pending Approval.');
+        showToast('Cart registered! Status: Pending Approval.');
       }
     } catch (err: any) {
       setAuthError(err.message || 'Authentication failed');
@@ -227,11 +275,26 @@ export default function App() {
     showToast('Logged out successfully.');
   };
 
-  // Payment Submission
+  // Payment Proof File Upload Reader
+  const handleProofFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Image file too large (Max 5MB).');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setPayProofBase64(reader.result as string);
+      showToast('Payment screenshot attached!');
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handlePaymentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!payRef.trim()) {
-      showToast('Please enter your transaction reference ID.');
+      showToast('Please enter your transaction reference TID.');
       return;
     }
     setSubmittingPayment(true);
@@ -240,8 +303,10 @@ export default function App() {
         amount: parseFloat(payAmount) || 500,
         paymentMethod: paySubmitMethod,
         reference: payRef.trim(),
+        proofBase64: payProofBase64 || undefined,
       });
       setPayRef('');
+      setPayProofBase64('');
       showToast('Payment submitted successfully! Byte NCo Admin will review.');
       loadPaymentStatus();
     } catch (err: any) {
@@ -251,7 +316,7 @@ export default function App() {
     }
   };
 
-  // POS Cart management
+  // Cart Management
   const addToCart = (product: Product) => {
     setCart(prev => {
       const existing = prev.find(item => item.product.ProductID === product.ProductID);
@@ -278,6 +343,10 @@ export default function App() {
     );
   };
 
+  const removeFromCart = (productId: number) => {
+    setCart(prev => prev.filter(item => item.product.ProductID !== productId));
+  };
+
   const cartTotal = useMemo(() => {
     return cart.reduce((sum, item) => sum + item.product.Price * item.qty, 0);
   }, [cart]);
@@ -285,6 +354,37 @@ export default function App() {
   const cartItemCount = useMemo(() => {
     return cart.reduce((sum, item) => sum + item.qty, 0);
   }, [cart]);
+
+  // Cash Tender & Change Calculation
+  const cashNum = parseFloat(cashTendered) || 0;
+  const changeDue = Math.max(0, cashNum - cartTotal);
+
+  // Dynamic Product Categories
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    products.forEach(p => {
+      if (p.Category) set.add(p.Category);
+    });
+    return ['All', ...Array.from(set)];
+  }, [products]);
+
+  // Filtered Products for POS
+  const filteredProducts = useMemo(() => {
+    return products.filter(p => {
+      const matchCat = selectedCategory === 'All' || p.Category === selectedCategory;
+      const matchQuery = !posSearch.trim() || p.ProductName.toLowerCase().includes(posSearch.toLowerCase().trim());
+      return matchCat && matchQuery && p.IsActive;
+    });
+  }, [products, selectedCategory, posSearch]);
+
+  // Filtered Orders for History
+  const filteredOrders = useMemo(() => {
+    return orders.filter(o => {
+      const matchMethod = orderMethodFilter === 'All' || o.PaymentMethod === orderMethodFilter;
+      const matchSearch = !orderSearchQuery.trim() || o.OrderNo.toLowerCase().includes(orderSearchQuery.toLowerCase().trim());
+      return matchMethod && matchSearch;
+    });
+  }, [orders, orderMethodFilter, orderSearchQuery]);
 
   // Checkout Execution
   const handleCheckout = async () => {
@@ -305,16 +405,18 @@ export default function App() {
       const res = await api.checkout({
         idempotencyKey,
         paymentMethod: payMethod,
+        cashReceived: payMethod === 'Cash' ? (cashNum > 0 ? cashNum : cartTotal) : null,
+        changeDue: payMethod === 'Cash' ? (cashNum > cartTotal ? changeDue : 0) : null,
         items,
       });
 
-      // Clear cart and show receipt dialog
       setCart([]);
+      setCashTendered('');
       setReceiptOrder(res.order);
       setReceiptCopy('customer');
-      showToast(`Sale completed! Order ${res.order.OrderNo}`);
+      showToast(`Sale recorded! Order ${res.order.OrderNo}`);
 
-      // Refresh dashboard & orders in background
+      // Refresh data
       api.getOrders().then(setOrders);
       api.getTodayMetrics().then(setMetrics);
     } catch (err: any) {
@@ -324,8 +426,8 @@ export default function App() {
     }
   };
 
-  // Create Product
-  const handleCreateProduct = async (e: React.FormEvent) => {
+  // Product Add / Edit
+  const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     const priceNum = parseFloat(newProdPrice);
     if (!newProdName.trim() || isNaN(priceNum) || priceNum <= 0) {
@@ -334,19 +436,33 @@ export default function App() {
     }
     setProdSubmitting(true);
     try {
-      const created = await api.createProduct({
-        productName: newProdName.trim(),
-        price: priceNum,
-        imageUrl: newProdImg.trim() || undefined,
-      });
-      setProducts(prev => [created, ...prev]);
+      if (editingProduct) {
+        const updated = await api.updateProduct(editingProduct.ProductID, {
+          productName: newProdName.trim(),
+          price: priceNum,
+          category: newProdCategory.trim() || 'General',
+          imageUrl: newProdImg.trim() || undefined,
+        });
+        setProducts(prev => prev.map(p => (p.ProductID === updated.ProductID ? updated : p)));
+        showToast(`Product "${updated.ProductName}" updated.`);
+      } else {
+        const created = await api.createProduct({
+          productName: newProdName.trim(),
+          price: priceNum,
+          category: newProdCategory.trim() || 'General',
+          imageUrl: newProdImg.trim() || undefined,
+        });
+        setProducts(prev => [created, ...prev]);
+        showToast(`Product "${created.ProductName}" added successfully!`);
+      }
       setShowAddProdModal(false);
+      setEditingProduct(null);
       setNewProdName('');
       setNewProdPrice('');
+      setNewProdCategory('General');
       setNewProdImg('');
-      showToast(`Product "${created.ProductName}" added successfully!`);
     } catch (err: any) {
-      showToast(err.message || 'Failed to add product.');
+      showToast(err.message || 'Failed to save product.');
     } finally {
       setProdSubmitting(false);
     }
@@ -364,7 +480,17 @@ export default function App() {
     }
   };
 
-  // Browser print trigger
+  const handleDeleteProduct = async (productId: number) => {
+    if (!confirm('Are you sure you want to remove this product?')) return;
+    try {
+      await api.deleteProduct(productId);
+      setProducts(prev => prev.filter(p => p.ProductID !== productId));
+      showToast('Product removed.');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to delete product.');
+    }
+  };
+
   const handlePrint = (copy: 'customer' | 'shop' | 'both') => {
     setReceiptCopy(copy);
     setTimeout(() => {
@@ -377,35 +503,36 @@ export default function App() {
   // ----------------------------------------------------
   if (loadingUser) {
     return (
-      <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', fontFamily: 'var(--f-ui)' }}>
+      <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '24px', fontWeight: 800, fontFamily: 'var(--f-display)', letterSpacing: '-0.5px', marginBottom: 8 }}>
+          <div style={{ fontSize: '28px', fontWeight: 800, fontFamily: 'var(--f-display)', letterSpacing: '-0.5px', marginBottom: 8 }}>
             Byte NCo <span style={{ color: 'var(--accent)' }}>POS</span>
           </div>
-          <p className="muted">Loading system...</p>
+          <p className="muted">Initializing Point of Sale System...</p>
         </div>
       </div>
     );
   }
 
   // ----------------------------------------------------
-  // 1. PUBLIC AUTH SCREEN (Login & Register)
+  // 1. PUBLIC AUTH SCREEN (Login / Registration)
   // ----------------------------------------------------
   if (!user) {
     return (
       <div className="auth-wrap">
         <div className="auth-card">
           <div className="auth-brand">
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: 18 }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: 20 }}>
                 B
               </div>
-              <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800 }}>Byte NCo</h1>
+              <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800 }}>Byte NCo</h1>
             </div>
-            <p className="fine" style={{ marginTop: 4 }}>Fast, Simple POS for Food Carts & Street Vendors (PKR)</p>
+            <p className="fine" style={{ marginTop: 6, fontSize: 13 }}>
+              Lightweight, Touch-Friendly POS for Food Carts & Street Vendors
+            </p>
           </div>
 
-          {/* Role & Mode Switcher */}
           <div className="tabs" style={{ marginBottom: 18 }}>
             <button
               className={`tab ${authRole === 'owner' ? 'active' : ''}`}
@@ -422,7 +549,7 @@ export default function App() {
           </div>
 
           {authRole === 'owner' && (
-            <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 18 }}>
               <button
                 className={`btn sm ${authMode === 'login' ? 'primary' : 'ghost'}`}
                 style={{ flex: 1 }}
@@ -440,11 +567,7 @@ export default function App() {
             </div>
           )}
 
-          {authError && (
-            <div className="alert bad" style={{ marginBottom: 14 }}>
-              {authError}
-            </div>
-          )}
+          {authError && <div className="alert bad">{authError}</div>}
 
           <form onSubmit={handleAuthSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {authMode === 'login' ? (
@@ -525,7 +648,7 @@ export default function App() {
                   <input
                     className="input"
                     type="password"
-                    placeholder="Create a strong password"
+                    placeholder="Create a secure password"
                     value={regPass}
                     onChange={e => setRegPass(e.target.value)}
                     required
@@ -535,14 +658,13 @@ export default function App() {
             )}
 
             <button className="btn primary wide" type="submit" disabled={authSubmitting} style={{ marginTop: 8 }}>
-              {authSubmitting ? 'Please wait...' : authMode === 'login' ? 'Sign In to POS' : 'Submit Cart Registration'}
+              {authSubmitting ? 'Verifying...' : authMode === 'login' ? 'Sign In to POS' : 'Submit Cart Registration'}
             </button>
           </form>
 
-          {/* Database & Vercel mode status */}
           <div style={{ marginTop: 18, textAlign: 'center', fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: dbLive ? '#10b981' : '#64748b' }} />
-            {dbLive ? 'MSSQL Database (ByteNcoDB Connected)' : 'Offline / Standalone Mode'}
+            {dbLive ? 'MSSQL Database (ByteNcoDB Connected)' : 'Offline / Standalone Mode (Local Storage)'}
           </div>
         </div>
       </div>
@@ -564,43 +686,39 @@ export default function App() {
             <span className={`pill ${user.status === 'Pending' ? 'warn' : 'bad'}`}>
               Status: {user.status}
             </span>
-            <button className="btn ghost sm" onClick={handleRefreshStatus}>
-              Refresh Status
-            </button>
-            <button className="btn ghost sm" onClick={handleLogout}>
-              Logout
-            </button>
+            <button className="btn ghost sm" onClick={loadPaymentStatus}>Refresh</button>
+            <button className="btn ghost sm" onClick={handleLogout}>Logout</button>
           </div>
         </header>
 
-        <main className="page" style={{ maxWidth: 760, margin: '20px auto' }}>
+        <main className="page" style={{ maxWidth: 780, margin: '20px auto' }}>
           {user.status === 'Pending' && (
-            <div className="card" style={{ padding: 24, marginBottom: 20 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-                <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'var(--warn-soft)', color: 'var(--warn)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 'bold' }}>
+            <div className="card" style={{ padding: 26, marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
+                <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'var(--warn-soft)', color: 'var(--warn)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, fontWeight: 'bold' }}>
                   ⏳
                 </div>
                 <div>
-                  <h2 style={{ margin: 0, fontSize: 18 }}>Account Awaiting Approval</h2>
+                  <h2 style={{ margin: 0, fontSize: 20 }}>Account Awaiting Approval</h2>
                   <p className="fine">Your cart is registered. Complete payment verification to unlock the POS.</p>
                 </div>
               </div>
 
-              <div style={{ background: 'var(--surface-2)', padding: 16, borderRadius: 'var(--r)', marginBottom: 20, borderLeft: '4px solid var(--accent)' }}>
-                <h4 style={{ margin: '0 0 6px' }}>Payment Instructions (Subscription: Rs. 500)</h4>
-                <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
+              <div style={{ background: 'var(--surface-2)', padding: 18, borderRadius: 'var(--r)', marginBottom: 22, borderLeft: '4px solid var(--accent)' }}>
+                <h4 style={{ margin: '0 0 8px', fontSize: 15 }}>Payment Instructions (Subscription: Rs. 500)</h4>
+                <p style={{ margin: '0 0 10px', fontSize: 13.5, lineHeight: 1.5 }}>
                   {payInstructions || 'Please transfer Rs. 500 to JazzCash/EasyPaisa (0300-1234567, Title: Byte NCo POS) and submit your Transaction Reference ID below.'}
                 </p>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  <span className="tender-pill jazzcash">JazzCash: 0300-1234567</span>
+                  <span className="tender-pill easypaisa">EasyPaisa: 0300-1234567</span>
+                </div>
               </div>
 
               <form onSubmit={handlePaymentSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                 <div>
                   <label className="label">Payment Method Used</label>
-                  <select
-                    className="input"
-                    value={paySubmitMethod}
-                    onChange={e => setPaySubmitMethod(e.target.value)}
-                  >
+                  <select className="input" value={paySubmitMethod} onChange={e => setPaySubmitMethod(e.target.value)}>
                     <option value="JazzCash">JazzCash</option>
                     <option value="EasyPaisa">EasyPaisa</option>
                     <option value="Bank Transfer">Bank Transfer</option>
@@ -608,28 +726,25 @@ export default function App() {
                 </div>
                 <div>
                   <label className="label">Amount Paid (PKR)</label>
-                  <input
-                    className="input"
-                    type="number"
-                    value={payAmount}
-                    onChange={e => setPayAmount(e.target.value)}
-                    required
-                  />
+                  <input className="input" type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} required />
                 </div>
                 <div style={{ gridColumn: 'span 2' }}>
                   <label className="label">Transaction Reference / TID Number</label>
-                  <input
-                    className="input"
-                    type="text"
-                    placeholder="e.g. TID-9876543210"
-                    value={payRef}
-                    onChange={e => setPayRef(e.target.value)}
-                    required
-                  />
+                  <input className="input" type="text" placeholder="e.g. TID-9876543210" value={payRef} onChange={e => setPayRef(e.target.value)} required />
+                </div>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <label className="label">Attach Payment Screenshot (Optional)</label>
+                  <input className="input" type="file" accept="image/*" onChange={handleProofFileChange} />
+                  {payProofBase64 && (
+                    <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <img src={payProofBase64} alt="Proof" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--line)' }} />
+                      <span className="fine" style={{ color: 'var(--good)' }}>Screenshot attached! Ready to submit.</span>
+                    </div>
+                  )}
                 </div>
                 <div style={{ gridColumn: 'span 2' }}>
                   <button className="btn primary wide" type="submit" disabled={submittingPayment}>
-                    {submittingPayment ? 'Submitting...' : 'Submit Payment Reference for Admin Review'}
+                    {submittingPayment ? 'Submitting...' : 'Submit Payment for Admin Review'}
                   </button>
                 </div>
               </form>
@@ -639,13 +754,13 @@ export default function App() {
           {user.status === 'Rejected' && (
             <div className="card" style={{ padding: 24, marginBottom: 20, borderLeft: '4px solid var(--bad)' }}>
               <h2 style={{ margin: '0 0 8px', color: 'var(--bad)' }}>Application / Payment Rejected</h2>
-              <p className="fine" style={{ marginBottom: 16 }}>
-                Byte NCo administration reviewed your submission and marked it Rejected.
+              <p className="fine" style={{ marginBottom: 14 }}>
+                Your payment submission was rejected by Byte NCo Administration.
               </p>
-              <div style={{ background: 'var(--bad-soft)', color: 'var(--bad)', padding: 12, borderRadius: 'var(--r)', marginBottom: 20 }}>
-                <strong>Rejection Reason:</strong> {paymentSubmissions[0]?.RejectionReason || 'Invalid payment reference or unverified deposit.'}
+              <div style={{ background: 'var(--bad-soft)', color: 'var(--bad)', padding: 12, borderRadius: 'var(--r)', marginBottom: 18 }}>
+                <strong>Rejection Reason:</strong> {paymentSubmissions[0]?.RejectionReason || 'Invalid transaction ID or deposit unverified.'}
               </div>
-              <h4>Resubmit Payment Details:</h4>
+              <h4>Resubmit Correct Details:</h4>
               <form onSubmit={handlePaymentSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                 <div>
                   <label className="label">Payment Method</label>
@@ -673,9 +788,9 @@ export default function App() {
           )}
 
           {user.status === 'Blocked' && (
-            <div className="card" style={{ padding: 24, textAlign: 'center', borderLeft: '4px solid var(--bad)' }}>
+            <div className="card" style={{ padding: 32, textAlign: 'center', borderLeft: '4px solid var(--bad)' }}>
               <h2 style={{ color: 'var(--bad)', marginTop: 0 }}>Account Suspended</h2>
-              <p>Your cart account has been suspended by Byte NCo Administration. All POS and selling features are locked.</p>
+              <p>Your cart account has been suspended by Byte NCo Administration. POS and selling features are locked.</p>
               <p className="fine">Please contact Byte NCo Support for resolution.</p>
             </div>
           )}
@@ -683,7 +798,7 @@ export default function App() {
           {/* Submissions History */}
           {paymentSubmissions.length > 0 && (
             <div className="card" style={{ padding: 18 }}>
-              <h4 style={{ margin: '0 0 12px' }}>Your Payment Submissions</h4>
+              <h4 style={{ margin: '0 0 12px' }}>Your Submissions History</h4>
               <table className="table">
                 <thead>
                   <tr>
@@ -763,7 +878,6 @@ export default function App() {
         </div>
 
         <main className="work page">
-          {/* Top KPI row */}
           {adminStats && (
             <div className="kpis" style={{ marginBottom: 20 }}>
               <div className="kpi">
@@ -771,7 +885,7 @@ export default function App() {
                 <span className="kpi-v" style={{ color: adminStats.owners.Pending > 0 ? 'var(--warn)' : 'inherit' }}>
                   {adminStats.owners.Pending}
                 </span>
-                <span className="fine">{adminStats.pendingPayments} payments awaiting review</span>
+                <span className="fine">{adminStats.pendingPayments} payments awaiting verification</span>
               </div>
               <div className="kpi">
                 <span className="kpi-l">Approved Owners</span>
@@ -788,14 +902,13 @@ export default function App() {
               <div className="kpi">
                 <span className="kpi-l">Total Platform Sales</span>
                 <span className="kpi-v">{fmtPkr(adminStats.totalPlatformSales)}</span>
-                <span className="fine">{adminStats.totalPlatformOrders} lifetime orders</span>
+                <span className="fine">{adminStats.totalPlatformOrders} lifetime sales</span>
               </div>
             </div>
           )}
 
           {adminActiveTab === 'owners' && (
-            <div className="card" style={{ padding: 18 }}>
-              {/* Filter bar */}
+            <div className="card" style={{ padding: 20 }}>
               <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
                 <div style={{ display: 'flex', gap: 6 }}>
                   {['all', 'Pending', 'Approved', 'Rejected', 'Blocked'].map(st => (
@@ -811,7 +924,7 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-                <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ flex: 1, minWidth: 220 }}>
                   <input
                     className="input sm"
                     placeholder="Search by owner name, cart name, mobile..."
@@ -824,7 +937,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Owners Table */}
               <table className="table">
                 <thead>
                   <tr>
@@ -832,14 +944,14 @@ export default function App() {
                     <th>City & Mobile</th>
                     <th>Status</th>
                     <th>Latest Payment</th>
-                    <th>Orders</th>
+                    <th>Sales</th>
                     <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {adminOwners.length === 0 ? (
                     <tr>
-                      <td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: 'var(--muted)' }}>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '32px', color: 'var(--muted)' }}>
                         No cart owners found matching this filter.
                       </td>
                     </tr>
@@ -864,13 +976,22 @@ export default function App() {
                             <div>
                               <span className="mono">{o.LastPaymentRef}</span>
                               <div className="fine">{fmtPkr(o.LastPaymentAmount)} ({o.LastPaymentMethod})</div>
+                              {o.LastPaymentProof && (
+                                <button
+                                  className="btn ghost sm"
+                                  style={{ padding: '0 4px', height: 20, fontSize: 11, color: 'var(--adm)' }}
+                                  onClick={() => setLightboxImg(o.LastPaymentProof)}
+                                >
+                                  📷 View Proof Screenshot
+                                </button>
+                              )}
                             </div>
                           ) : (
-                            <span className="muted">No payment submitted</span>
+                            <span className="muted">No submission</span>
                           )}
                         </td>
                         <td>
-                          <strong>{o.OrdersCount || 0}</strong>
+                          <strong>{o.OrdersCount || 0} orders</strong>
                           <div className="fine">{fmtPkr(o.TotalSales || 0)}</div>
                         </td>
                         <td>
@@ -894,12 +1015,12 @@ export default function App() {
           )}
 
           {adminActiveTab === 'audit' && (
-            <div className="card" style={{ padding: 18 }}>
+            <div className="card" style={{ padding: 20 }}>
               <h3 style={{ margin: '0 0 14px' }}>System & Admin Audit Logs</h3>
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Timestamp (Asia/Karachi)</th>
+                    <th>Timestamp</th>
                     <th>Action</th>
                     <th>Admin / Actor</th>
                     <th>Target Owner</th>
@@ -932,16 +1053,16 @@ export default function App() {
           )}
         </main>
 
-        {/* Admin Review Owner Modal */}
+        {/* Modal: Admin Owner Review */}
         {adminSelectedOwner && (
           <div className="scrim" onClick={() => setAdminSelectedOwner(null)}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 540 }}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
               <div className="modal-h">
                 <h3>Review Cart Owner: {adminSelectedOwner.CartName}</h3>
                 <button className="btn ghost sm" onClick={() => setAdminSelectedOwner(null)}>✕</button>
               </div>
               <div className="modal-b">
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
                   <div>
                     <span className="label">Owner Name:</span>
                     <strong>{adminSelectedOwner.OwnerName}</strong>
@@ -962,19 +1083,29 @@ export default function App() {
                   </div>
                 </div>
 
-                <div style={{ background: 'var(--surface-2)', padding: 12, borderRadius: 'var(--r)', marginBottom: 16 }}>
-                  <h4 style={{ margin: '0 0 8px' }}>Latest Payment Submission</h4>
+                <div style={{ background: 'var(--surface-2)', padding: 14, borderRadius: 'var(--r)', marginBottom: 16 }}>
+                  <h4 style={{ margin: '0 0 8px' }}>Payment Submission</h4>
                   {adminSelectedOwner.LastPaymentRef ? (
                     <div>
                       <p style={{ margin: '0 0 4px' }}>
-                        <strong>Reference ID:</strong> <span className="mono">{adminSelectedOwner.LastPaymentRef}</span>
+                        <strong>Reference ID (TID):</strong> <span className="mono">{adminSelectedOwner.LastPaymentRef}</span>
                       </p>
                       <p style={{ margin: '0 0 4px' }}>
                         <strong>Amount:</strong> {fmtPkr(adminSelectedOwner.LastPaymentAmount)} &bull; <strong>Method:</strong> {adminSelectedOwner.LastPaymentMethod}
                       </p>
                       <p style={{ margin: 0, fontSize: 12 }} className="muted">
-                        Submitted: {fmtDateTime(adminSelectedOwner.LastPaymentDate)} &bull; Status: {adminSelectedOwner.LastPaymentStatus}
+                        Submitted: {fmtDateTime(adminSelectedOwner.LastPaymentDate)}
                       </p>
+                      {adminSelectedOwner.LastPaymentProof && (
+                        <div style={{ marginTop: 10 }}>
+                          <button
+                            className="btn sm ghost"
+                            onClick={() => setLightboxImg(adminSelectedOwner.LastPaymentProof)}
+                          >
+                            📷 Click to View Full Payment Screenshot
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <p style={{ margin: 0, color: 'var(--muted)' }}>No payment record submitted yet.</p>
@@ -1009,11 +1140,11 @@ export default function App() {
                 {/* Reject Section */}
                 {adminSelectedOwner.LastPaymentID && adminSelectedOwner.Status === 'Pending' && (
                   <div style={{ marginBottom: 16, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
-                    <label className="label">Rejection Reason (Required to Reject)</label>
+                    <label className="label">Rejection Reason</label>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <input
                         className="input sm"
-                        placeholder="e.g. Invalid TID / Deposit unverified"
+                        placeholder="e.g. Deposit unverified / Invalid TID"
                         value={adminRejectReason}
                         onChange={e => setAdminRejectReason(e.target.value)}
                       />
@@ -1034,7 +1165,7 @@ export default function App() {
                           }
                         }}
                       >
-                        Reject Payment
+                        Reject
                       </button>
                     </div>
                   </div>
@@ -1069,7 +1200,7 @@ export default function App() {
                             }
                           }}
                         >
-                          Block Owner
+                          Block
                         </button>
                       </div>
                     </div>
@@ -1101,29 +1232,41 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* Screenshot Lightbox Modal */}
+        {lightboxImg && (
+          <div className="scrim" onClick={() => setLightboxImg(null)}>
+            <div style={{ maxWidth: '90vw', maxHeight: '90vh', background: '#000', padding: 10, borderRadius: 12 }}>
+              <img src={lightboxImg} alt="Proof" style={{ maxWidth: '100%', maxHeight: '80vh', objectFit: 'contain' }} />
+              <div style={{ textAlign: 'center', marginTop: 8 }}>
+                <button className="btn sm primary" onClick={() => setLightboxImg(null)}>Close Image</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
   // ----------------------------------------------------
-  // 4. CART OWNER APPROVED WORKSPACE
+  // 4. APPROVED CART OWNER WORKSPACE
   // ----------------------------------------------------
   return (
     <div className="shell">
       {/* Top Header */}
       <header className="topbar">
         <div>
-          <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span>{user.cartName}</span>
-            <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 12, background: 'var(--good-soft)', color: 'var(--good)', fontWeight: 600 }}>
+            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: 'var(--good-soft)', color: 'var(--good)', fontWeight: 700 }}>
               Approved
             </span>
           </h1>
           <p className="fine">Owner: {user.ownerName} &bull; {user.city} &bull; PKR (Asia/Karachi)</p>
         </div>
         <div className="top-actions">
-          <span className={`pill ${dbLive ? 'good' : 'warn'}`}>
-            {dbLive ? 'MSSQL DB' : 'Offline / Standalone'}
+          <span className={`pill ${dbLive ? 'good' : 'neutral'}`}>
+            {dbLive ? 'MSSQL DB: Connected' : 'Local Storage Mode'}
           </span>
           <button className="btn ghost sm" onClick={handleLogout}>
             Logout
@@ -1137,7 +1280,7 @@ export default function App() {
           <div className="logo-badge">BN</div>
           <div className="logo-text">
             <strong>Byte NCo</strong>
-            <small>Simple POS</small>
+            <small>Simple POS v1.0</small>
           </div>
         </div>
         <nav className="rail-nav">
@@ -1145,105 +1288,151 @@ export default function App() {
             className={`nav-btn ${activeTab === 'pos' ? 'active' : ''}`}
             onClick={() => setActiveTab('pos')}
           >
-            <span>POS Register</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon.Store /> POS Register
+            </span>
             {cartItemCount > 0 && <span className="badge">{cartItemCount}</span>}
           </button>
           <button
             className={`nav-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
             onClick={() => setActiveTab('dashboard')}
           >
-            <span>Today's Sales</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon.Dashboard /> Today's Sales
+            </span>
           </button>
           <button
             className={`nav-btn ${activeTab === 'products' ? 'active' : ''}`}
             onClick={() => setActiveTab('products')}
           >
-            <span>Products</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon.Tag /> Products
+            </span>
           </button>
           <button
             className={`nav-btn ${activeTab === 'orders' ? 'active' : ''}`}
             onClick={() => setActiveTab('orders')}
           >
-            <span>Orders & Receipts</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon.Receipt /> Orders & Receipts
+            </span>
           </button>
           <button
             className={`nav-btn ${activeTab === 'status' ? 'active' : ''}`}
             onClick={() => setActiveTab('status')}
           >
-            <span>My Account</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon.User /> My Account
+            </span>
           </button>
         </nav>
       </aside>
 
       {/* Main Workspace Area */}
       <main className="work">
-        {/* TAB 1: POS REGISTER */}
+        {/* ==================== TAB 1: POS REGISTER ==================== */}
         {activeTab === 'pos' && (
           <div className="page" style={{ height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
-            {/* Mobile Tab Switcher for POS */}
-            <div className="pos-mobile-tabs hide-desktop" style={{ display: 'none', marginBottom: 12 }}>
-              <button
-                className={`tab ${mobilePosTab === 'menu' ? 'active' : ''}`}
-                style={{ flex: 1 }}
-                onClick={() => setMobilePosTab('menu')}
-              >
-                Products
-              </button>
-              <button
-                className={`tab ${mobilePosTab === 'cart' ? 'active' : ''}`}
-                style={{ flex: 1 }}
-                onClick={() => setMobilePosTab('cart')}
-              >
-                Cart ({cartItemCount}) &bull; {fmtPkr(cartTotal)}
-              </button>
-            </div>
+            <div className="two">
+              {/* Left Column: Product Selection Grid */}
+              <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+                {/* Search & Categories */}
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                    <div style={{ flex: 1, position: 'relative' }}>
+                      <input
+                        className="input sm"
+                        placeholder="Search product (e.g. Biryani, Chai, Roll)..."
+                        value={posSearch}
+                        onChange={e => setPosSearch(e.target.value)}
+                        style={{ paddingLeft: 34 }}
+                      />
+                      <span style={{ position: 'absolute', left: 10, top: 9, color: 'var(--muted)' }}>
+                        <Icon.Search />
+                      </span>
+                    </div>
+                  </div>
 
-            <div className="two" style={{ height: '100%' }}>
-              {/* Left Column: Product Grid */}
-              <div className="col" style={{ overflowY: 'auto', paddingRight: 8 }}>
-                {products.length === 0 ? (
-                  <div className="card" style={{ padding: 40, textAlign: 'center', marginTop: 20 }}>
-                    <div style={{ fontSize: 44, marginBottom: 12 }}>🛒</div>
-                    <h3 style={{ margin: '0 0 8px' }}>Add Product First</h3>
-                    <p className="muted" style={{ maxWidth: 360, margin: '0 auto 20px' }}>
-                      Your catalog is currently empty. You must add at least one product before taking customer orders.
-                    </p>
-                    <button
-                      className="btn primary"
-                      onClick={() => {
-                        setActiveTab('products');
-                        setShowAddProdModal(true);
-                      }}
-                    >
-                      + Add First Product
-                    </button>
-                  </div>
-                ) : (
-                  <div className="tiles">
-                    {products.map(p => (
+                  {/* Category Pills */}
+                  {categories.length > 1 && (
+                    <div className="category-bar">
+                      {categories.map(cat => (
+                        <button
+                          key={cat}
+                          className={`category-chip ${selectedCategory === cat ? 'active' : ''}`}
+                          onClick={() => setSelectedCategory(cat)}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Product Tiles */}
+                <div style={{ flex: 1, overflowY: 'auto', paddingRight: 4 }}>
+                  {products.length === 0 ? (
+                    <div className="card" style={{ padding: 40, textAlign: 'center', marginTop: 10 }}>
+                      <div style={{ fontSize: 44, marginBottom: 12 }}>🛒</div>
+                      <h3 style={{ margin: '0 0 8px' }}>Add Product First</h3>
+                      <p className="muted" style={{ maxWidth: 360, margin: '0 auto 20px' }}>
+                        Your catalog is currently empty. You must add at least one product before taking customer orders.
+                      </p>
                       <button
-                        key={p.ProductID}
-                        className="tile"
-                        onClick={() => addToCart(p)}
-                        style={{ position: 'relative' }}
+                        className="btn primary"
+                        onClick={() => {
+                          setActiveTab('products');
+                          setShowAddProdModal(true);
+                        }}
                       >
-                        <div className="tile-name">{p.ProductName}</div>
-                        <div className="tile-price">{fmtPkr(p.Price)}</div>
+                        + Add First Product
                       </button>
-                    ))}
-                  </div>
-                )}
+                    </div>
+                  ) : filteredProducts.length === 0 ? (
+                    <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}>
+                      No items found matching "{posSearch}".
+                    </div>
+                  ) : (
+                    <div className="tiles">
+                      {filteredProducts.map(p => (
+                        <button
+                          key={p.ProductID}
+                          className="tile"
+                          onClick={() => addToCart(p)}
+                        >
+                          <div>
+                            {p.Category && <div className="tile-cat">{p.Category}</div>}
+                            <div className="tile-name">{p.ProductName}</div>
+                          </div>
+                          <div className="tile-price">{fmtPkr(p.Price)}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Right Column: Cart Drawer */}
-              <div className="col" style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--surface)', borderRadius: 'var(--r)', border: '1px solid var(--line)' }}>
-                <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h3 style={{ margin: 0 }}>Current Order</h3>
-                  <span className="fine muted">{cartItemCount} items</span>
+              {/* Right Column: Tactile Cart & Tender Drawer */}
+              <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--surface)', borderRadius: 'var(--r-lg)', border: '1px solid var(--line)', overflow: 'hidden' }}>
+                <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface-2)' }}>
+                  <h3 style={{ margin: 0, fontSize: 16 }}>Current Bill</h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span className="pill neutral">{cartItemCount} items</span>
+                    {cart.length > 0 && (
+                      <button
+                        className="btn ghost sm"
+                        style={{ padding: '0 6px', color: 'var(--bad)', height: 26 }}
+                        onClick={() => setCart([])}
+                        title="Clear Cart"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {checkoutError && (
-                  <div className="alert bad" style={{ margin: 12, padding: 8 }}>
+                  <div className="alert bad" style={{ margin: 10, padding: 8 }}>
                     {checkoutError}
                   </div>
                 )}
@@ -1251,9 +1440,9 @@ export default function App() {
                 {/* Cart Items List */}
                 <div style={{ flex: 1, overflowY: 'auto', padding: '10px 14px' }}>
                   {cart.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '40px 10px', color: 'var(--muted)' }}>
-                      <p style={{ margin: 0, fontWeight: 500 }}>Cart is empty</p>
-                      <p className="fine">Tap any product on the left to add items.</p>
+                    <div style={{ textAlign: 'center', padding: '50px 10px', color: 'var(--muted)' }}>
+                      <p style={{ margin: 0, fontWeight: 600 }}>Cart is empty</p>
+                      <p className="fine">Tap products on the left to add items.</p>
                     </div>
                   ) : (
                     cart.map(item => (
@@ -1267,8 +1456,8 @@ export default function App() {
                           borderBottom: '1px solid var(--line)',
                         }}
                       >
-                        <div style={{ flex: 1, paddingRight: 8 }}>
-                          <div style={{ fontWeight: 600 }}>{item.product.ProductName}</div>
+                        <div style={{ flex: 1, paddingRight: 6 }}>
+                          <div style={{ fontWeight: 700, fontSize: 14 }}>{item.product.ProductName}</div>
                           <div className="fine muted">{fmtPkr(item.product.Price)} each</div>
                         </div>
 
@@ -1281,7 +1470,7 @@ export default function App() {
                           >
                             -
                           </button>
-                          <span style={{ fontWeight: 700, minWidth: 20, textAlign: 'center' }}>
+                          <span style={{ fontWeight: 800, minWidth: 20, textAlign: 'center' }}>
                             {item.qty}
                           </span>
                           <button
@@ -1293,24 +1482,32 @@ export default function App() {
                           </button>
                         </div>
 
-                        <div style={{ minWidth: 70, textAlign: 'right', fontWeight: 700 }}>
+                        <div style={{ minWidth: 70, textAlign: 'right', fontWeight: 800, fontSize: 14 }}>
                           {fmtPkr(item.product.Price * item.qty)}
                         </div>
+
+                        <button
+                          className="btn ghost sm"
+                          style={{ padding: '0 4px', color: 'var(--muted)', marginLeft: 4 }}
+                          onClick={() => removeFromCart(item.product.ProductID)}
+                        >
+                          ✕
+                        </button>
                       </div>
                     ))
                   )}
                 </div>
 
-                {/* Cart Footer & Checkout Action */}
+                {/* Tender & Checkout Footer */}
                 <div style={{ padding: '14px 18px', borderTop: '1px solid var(--line)', background: 'var(--surface-2)' }}>
-                  {/* Payment Method Selector */}
-                  <label className="label" style={{ marginBottom: 6 }}>Payment Method</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 14 }}>
+                  {/* Tender Selector */}
+                  <label className="label" style={{ marginBottom: 6 }}>Select Payment Tender</label>
+                  <div className="tender-selector">
                     {(['Cash', 'JazzCash', 'EasyPaisa'] as const).map(m => (
                       <button
                         key={m}
                         type="button"
-                        className={`btn sm ${payMethod === m ? 'primary' : 'ghost'}`}
+                        className={`tender-btn ${payMethod === m ? 'active ' + m.toLowerCase() : ''}`}
                         onClick={() => setPayMethod(m)}
                       >
                         {m}
@@ -1318,9 +1515,48 @@ export default function App() {
                     ))}
                   </div>
 
-                  {/* Grand Total */}
+                  {/* Cash Change Calculator (When Cash is chosen) */}
+                  {payMethod === 'Cash' && cartTotal > 0 && (
+                    <div style={{ background: 'var(--surface)', padding: 10, borderRadius: 'var(--r)', marginBottom: 12, border: '1px solid var(--line)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <span className="fine" style={{ fontWeight: 600 }}>Cash Received (PKR):</span>
+                        <input
+                          className="input sm"
+                          style={{ width: 110, textAlign: 'right', fontWeight: 700 }}
+                          placeholder={cartTotal.toString()}
+                          value={cashTendered}
+                          onChange={e => setCashTendered(e.target.value)}
+                        />
+                      </div>
+
+                      {/* Quick Cash Keys */}
+                      <div className="cash-keypad">
+                        {[cartTotal, 100, 500, 1000, 5000].map(val => (
+                          <button
+                            key={val}
+                            type="button"
+                            className="cash-chip"
+                            onClick={() => setCashTendered(val.toString())}
+                          >
+                            {val === cartTotal ? 'Exact' : `Rs. ${val}`}
+                          </button>
+                        ))}
+                      </div>
+
+                      {cashNum > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', paddingTop: 6, borderTop: '1px dashed var(--line)' }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)' }}>Change Return:</span>
+                          <span style={{ fontSize: 16, fontWeight: 800, color: changeDue > 0 ? 'var(--good)' : 'inherit' }}>
+                            {fmtPkr(changeDue)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Total and Checkout Action */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-                    <span style={{ fontSize: 15, fontWeight: 600 }}>Grand Total</span>
+                    <span style={{ fontSize: 15, fontWeight: 600 }}>Total Payable</span>
                     <span style={{ fontSize: 24, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--f-display)' }}>
                       {fmtPkr(cartTotal)}
                     </span>
@@ -1330,7 +1566,7 @@ export default function App() {
                     className="btn primary wide"
                     disabled={cart.length === 0 || isCheckingOut}
                     onClick={handleCheckout}
-                    style={{ height: 48, fontSize: 16 }}
+                    style={{ height: 48, fontSize: 15, fontWeight: 700 }}
                   >
                     {isCheckingOut ? 'Recording Sale...' : `COMPLETE SALE (${fmtPkr(cartTotal)})`}
                   </button>
@@ -1340,16 +1576,16 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 2: TODAY'S DASHBOARD */}
+        {/* ==================== TAB 2: TODAY'S DASHBOARD ==================== */}
         {activeTab === 'dashboard' && (
           <div className="page">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
-                <h2>Today's Performance</h2>
+                <h2>Today's Sales Dashboard</h2>
                 <p className="fine">Business Day: {metrics?.date || 'Today'} &bull; Timezone: Asia/Karachi (PKR)</p>
               </div>
               <button className="btn sm ghost" onClick={() => api.getTodayMetrics().then(setMetrics)}>
-                Refresh Metrics
+                Refresh Sales
               </button>
             </div>
 
@@ -1364,30 +1600,33 @@ export default function App() {
               <div className="kpi">
                 <span className="kpi-l">Today's Orders</span>
                 <span className="kpi-v">{metrics?.todayOrdersCount || 0}</span>
-                <span className="fine">Sales count today</span>
+                <span className="fine">Orders billed</span>
               </div>
               <div className="kpi">
-                <span className="kpi-l">Today's Cash Only</span>
+                <span className="kpi-l">Cash in Drawer (Physical)</span>
                 <span className="kpi-v" style={{ color: 'var(--good)' }}>
                   {fmtPkr(metrics?.todayCashSales || 0)}
                 </span>
-                <span className="fine">Cash in hand</span>
+                <span className="fine">Physical cash sales only</span>
               </div>
               <div className="kpi">
-                <span className="kpi-l">Mobile Wallets</span>
-                <span className="kpi-v" style={{ fontSize: 18, marginTop: 4 }}>
-                  JazzCash: {fmtPkr(metrics?.todayJazzCashSales || 0)}
+                <span className="kpi-l">Mobile Wallets Total</span>
+                <span className="kpi-v" style={{ fontSize: 20, color: 'var(--ink)' }}>
+                  {fmtPkr((metrics?.todayJazzCashSales || 0) + (metrics?.todayEasyPaisaSales || 0))}
                 </span>
-                <span className="fine">EasyPaisa: {fmtPkr(metrics?.todayEasyPaisaSales || 0)}</span>
+                <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                  <span className="tender-pill jazzcash">JazzCash: {fmtPkr(metrics?.todayJazzCashSales || 0)}</span>
+                  <span className="tender-pill easypaisa">EasyPaisa: {fmtPkr(metrics?.todayEasyPaisaSales || 0)}</span>
+                </div>
               </div>
             </div>
 
-            {/* Truthful Empty State if no sales today */}
+            {/* Truthful Empty State */}
             {(!metrics || metrics.todayOrdersCount === 0) && (
               <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
-                <div style={{ fontSize: 36, marginBottom: 10 }}>📊</div>
-                <h4 style={{ margin: '0 0 6px', color: 'var(--ink)' }}>No sales recorded yet today</h4>
-                <p className="fine" style={{ maxWidth: 400, margin: '0 auto 16px' }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>📊</div>
+                <h3 style={{ margin: '0 0 6px', color: 'var(--ink)' }}>No Sales Recorded Today Yet</h3>
+                <p className="fine" style={{ maxWidth: 420, margin: '0 auto 18px' }}>
                   Orders completed in the POS register will automatically compute your daily totals and cash reconciliation here.
                 </p>
                 <button className="btn primary sm" onClick={() => setActiveTab('pos')}>
@@ -1398,39 +1637,56 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 3: PRODUCTS MANAGEMENT */}
+        {/* ==================== TAB 3: PRODUCTS MANAGEMENT ==================== */}
         {activeTab === 'products' && (
           <div className="page">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
                 <h2>Product Catalogue</h2>
-                <p className="fine">Manage your food cart menu items and prices</p>
+                <p className="fine">Add, edit, or deactivate food cart menu items and prices</p>
               </div>
-              <button className="btn primary sm" onClick={() => setShowAddProdModal(true)}>
-                + Add Product
+              <button
+                className="btn primary sm"
+                onClick={() => {
+                  setEditingProduct(null);
+                  setNewProdName('');
+                  setNewProdPrice('');
+                  setNewProdCategory('General');
+                  setNewProdImg('');
+                  setShowAddProdModal(true);
+                }}
+              >
+                + Add New Product
               </button>
             </div>
 
             {products.length === 0 ? (
               <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
-                <div style={{ fontSize: 36, marginBottom: 10 }}>🥘</div>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>🥘</div>
                 <h3 style={{ margin: '0 0 6px', color: 'var(--ink)' }}>No Products Added Yet</h3>
-                <p className="fine" style={{ maxWidth: 360, margin: '0 auto 16px' }}>
-                  Create your first product (e.g. Biryani, Bun Kabab, Chai, Roll) to start billing on your cart.
+                <p className="fine" style={{ maxWidth: 380, margin: '0 auto 18px' }}>
+                  Add your food items (e.g. Biryani, Bun Kabab, Chai, Samosa) to start billing customers.
                 </p>
-                <button className="btn primary" onClick={() => setShowAddProdModal(true)}>
-                  + Add Product Now
+                <button
+                  className="btn primary"
+                  onClick={() => {
+                    setEditingProduct(null);
+                    setShowAddProdModal(true);
+                  }}
+                >
+                  + Add First Product
                 </button>
               </div>
             ) : (
-              <div className="card" style={{ padding: 18 }}>
+              <div className="card" style={{ padding: 20 }}>
                 <table className="table">
                   <thead>
                     <tr>
                       <th>Product Name</th>
+                      <th>Category</th>
                       <th>Price (PKR)</th>
                       <th>Status</th>
-                      <th>Action</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1439,19 +1695,45 @@ export default function App() {
                         <td>
                           <strong>{p.ProductName}</strong>
                         </td>
-                        <td style={{ fontWeight: 600 }}>{fmtPkr(p.Price)}</td>
+                        <td>
+                          <span className="pill neutral">{p.Category || 'General'}</span>
+                        </td>
+                        <td style={{ fontWeight: 700 }}>{fmtPkr(p.Price)}</td>
                         <td>
                           <span className={`pill ${p.IsActive ? 'good' : 'neutral'}`}>
-                            {p.IsActive ? 'Active' : 'Inactive'}
+                            {p.IsActive ? 'Active' : 'Deactivated'}
                           </span>
                         </td>
                         <td>
-                          <button
-                            className="btn ghost sm"
-                            onClick={() => handleToggleProduct(p.ProductID)}
-                          >
-                            {p.IsActive ? 'Deactivate' : 'Activate'}
-                          </button>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                              className="btn ghost sm"
+                              onClick={() => {
+                                setEditingProduct(p);
+                                setNewProdName(p.ProductName);
+                                setNewProdPrice(p.Price.toString());
+                                setNewProdCategory(p.Category || 'General');
+                                setNewProdImg(p.ImageUrl || '');
+                                setShowAddProdModal(true);
+                              }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="btn ghost sm"
+                              onClick={() => handleToggleProduct(p.ProductID)}
+                            >
+                              {p.IsActive ? 'Deactivate' : 'Activate'}
+                            </button>
+                            <button
+                              className="btn danger sm"
+                              style={{ padding: '0 8px' }}
+                              onClick={() => handleDeleteProduct(p.ProductID)}
+                              title="Delete Product"
+                            >
+                              <Icon.Trash />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1462,56 +1744,86 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 4: ORDERS & RECEIPTS */}
+        {/* ==================== TAB 4: ORDERS & RECEIPTS ==================== */}
         {activeTab === 'orders' && (
           <div className="page">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
                 <h2>Order History & Receipts</h2>
                 <p className="fine">Reprint customer or shop thermal slips</p>
               </div>
               <button className="btn ghost sm" onClick={() => api.getOrders().then(setOrders)}>
-                Refresh Orders
+                Refresh History
               </button>
+            </div>
+
+            {/* Filter and Search */}
+            <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {['All', 'Cash', 'JazzCash', 'EasyPaisa'].map(m => (
+                  <button
+                    key={m}
+                    className={`btn sm ${orderMethodFilter === m ? 'primary' : 'ghost'}`}
+                    onClick={() => setOrderMethodFilter(m)}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <input
+                  className="input sm"
+                  placeholder="Search by Order # (e.g. #000101)..."
+                  value={orderSearchQuery}
+                  onChange={e => setOrderSearchQuery(e.target.value)}
+                />
+              </div>
             </div>
 
             {orders.length === 0 ? (
               <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
-                <div style={{ fontSize: 36, marginBottom: 10 }}>🧾</div>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>🧾</div>
                 <h3 style={{ margin: '0 0 6px', color: 'var(--ink)' }}>No Sales Yet</h3>
-                <p className="fine" style={{ maxWidth: 360, margin: '0 auto 16px' }}>
-                  Completed orders will appear here with instant thermal receipt reprint options.
+                <p className="fine" style={{ maxWidth: 360, margin: '0 auto 18px' }}>
+                  Completed sales from the POS register will appear here with instant thermal receipt reprint options.
                 </p>
                 <button className="btn primary sm" onClick={() => setActiveTab('pos')}>
                   Start Selling in POS
                 </button>
               </div>
+            ) : filteredOrders.length === 0 ? (
+              <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}>
+                No orders found matching this filter.
+              </div>
             ) : (
-              <div className="card" style={{ padding: 18 }}>
+              <div className="card" style={{ padding: 20 }}>
                 <table className="table">
                   <thead>
                     <tr>
                       <th>Order No</th>
                       <th>Date & Time</th>
-                      <th>Payment Method</th>
+                      <th>Payment Tender</th>
                       <th>Items</th>
-                      <th>Total</th>
+                      <th>Total (PKR)</th>
                       <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {orders.map(o => (
+                    {filteredOrders.map(o => (
                       <tr key={o.OrderID}>
-                        <td className="mono" style={{ fontWeight: 700 }}>{o.OrderNo}</td>
+                        <td className="mono" style={{ fontWeight: 800 }}>{o.OrderNo}</td>
                         <td>{fmtDateTime(o.OrderDate)}</td>
                         <td>
-                          <span className="pill neutral">{o.PaymentMethod}</span>
+                          <span className={`tender-pill ${o.PaymentMethod.toLowerCase()}`}>
+                            {o.PaymentMethod}
+                          </span>
                         </td>
                         <td>{o.TotalItems || '-'} items</td>
-                        <td style={{ fontWeight: 700 }}>{fmtPkr(o.TotalAmount)}</td>
+                        <td style={{ fontWeight: 800 }}>{fmtPkr(o.TotalAmount)}</td>
                         <td>
                           <button
                             className="btn sm"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                             onClick={async () => {
                               try {
                                 const detail = await api.getOrderDetail(o.OrderID);
@@ -1522,7 +1834,7 @@ export default function App() {
                               }
                             }}
                           >
-                            Print Receipt
+                            <Icon.Printer /> Reprint Slip
                           </button>
                         </td>
                       </tr>
@@ -1534,19 +1846,19 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 5: MY ACCOUNT / STATUS */}
+        {/* ==================== TAB 5: MY ACCOUNT / STATUS ==================== */}
         {activeTab === 'status' && (
-          <div className="page" style={{ maxWidth: 640 }}>
+          <div className="page" style={{ maxWidth: 680 }}>
             <h2>Cart & Subscription Details</h2>
-            <div className="card" style={{ padding: 20, marginBottom: 18 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="card" style={{ padding: 24, marginTop: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div>
                   <span className="label">Cart Name</span>
-                  <strong>{user.cartName}</strong>
+                  <strong style={{ fontSize: 16 }}>{user.cartName}</strong>
                 </div>
                 <div>
                   <span className="label">Owner Name</span>
-                  <strong>{user.ownerName}</strong>
+                  <strong style={{ fontSize: 16 }}>{user.ownerName}</strong>
                 </div>
                 <div>
                   <span className="label">Mobile Number</span>
@@ -1561,8 +1873,8 @@ export default function App() {
                   <span className="pill good">Approved & Active</span>
                 </div>
                 <div>
-                  <span className="label">Platform Version</span>
-                  <strong>Byte NCo v1.0 (PKR)</strong>
+                  <span className="label">Platform Architecture</span>
+                  <strong>Byte NCo POS v1.0 (PKR)</strong>
                 </div>
               </div>
             </div>
@@ -1570,46 +1882,58 @@ export default function App() {
         )}
       </main>
 
-      {/* MODAL: ADD PRODUCT */}
+      {/* ==================== MODAL: ADD / EDIT PRODUCT ==================== */}
       {showAddProdModal && (
         <div className="scrim" onClick={() => setShowAddProdModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
             <div className="modal-h">
-              <h3>Add New Product</h3>
+              <h3>{editingProduct ? 'Edit Product' : 'Add New Product'}</h3>
               <button className="btn ghost sm" onClick={() => setShowAddProdModal(false)}>✕</button>
             </div>
-            <form onSubmit={handleCreateProduct}>
+            <form onSubmit={handleSaveProduct}>
               <div className="modal-b" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div>
                   <label className="label">Product / Food Item Name</label>
                   <input
                     className="input"
                     type="text"
-                    placeholder="e.g. Chicken Biryani Half"
+                    placeholder="e.g. Special Chicken Biryani"
                     value={newProdName}
                     onChange={e => setNewProdName(e.target.value)}
                     required
                   />
                 </div>
-                <div>
-                  <label className="label">Price in PKR (e.g. 250)</label>
-                  <input
-                    className="input"
-                    type="number"
-                    step="0.01"
-                    min="1"
-                    placeholder="250"
-                    value={newProdPrice}
-                    onChange={e => setNewProdPrice(e.target.value)}
-                    required
-                  />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label className="label">Price in PKR</label>
+                    <input
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      min="1"
+                      placeholder="e.g. 250"
+                      value={newProdPrice}
+                      onChange={e => setNewProdPrice(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Category</label>
+                    <input
+                      className="input"
+                      type="text"
+                      placeholder="e.g. Biryani, Rolls, Drinks"
+                      value={newProdCategory}
+                      onChange={e => setNewProdCategory(e.target.value)}
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="label">Image URL (Optional)</label>
                   <input
                     className="input"
                     type="url"
-                    placeholder="https://..."
+                    placeholder="https://images.unsplash.com/..."
                     value={newProdImg}
                     onChange={e => setNewProdImg(e.target.value)}
                   />
@@ -1620,7 +1944,7 @@ export default function App() {
                   Cancel
                 </button>
                 <button type="submit" className="btn primary" disabled={prodSubmitting}>
-                  {prodSubmitting ? 'Saving...' : 'Add to Menu'}
+                  {prodSubmitting ? 'Saving...' : editingProduct ? 'Save Changes' : 'Add Product'}
                 </button>
               </div>
             </form>
@@ -1628,113 +1952,135 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: THERMAL RECEIPT SLIP & PRINT PREVIEW */}
+      {/* ==================== MODAL: DUAL THERMAL RECEIPT PREVIEW & PRINT ==================== */}
       {receiptOrder && (
         <div className="scrim" onClick={() => setReceiptOrder(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 540 }}>
             <div className="modal-h no-print">
-              <h3>Thermal Receipt Preview</h3>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon.Printer /> Thermal Receipt
+              </h3>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button
                   className={`btn sm ${receiptWidth === '58mm' ? 'primary' : 'ghost'}`}
                   onClick={() => setReceiptWidth('58mm')}
                 >
-                  58mm (2")
+                  58mm
                 </button>
                 <button
                   className={`btn sm ${receiptWidth === '80mm' ? 'primary' : 'ghost'}`}
                   onClick={() => setReceiptWidth('80mm')}
                 >
-                  80mm (3")
+                  80mm
                 </button>
                 <button className="btn ghost sm" onClick={() => setReceiptOrder(null)}>✕</button>
               </div>
             </div>
 
-            <div className="modal-b" style={{ maxHeight: '65vh', overflowY: 'auto' }}>
-              {/* Slip Print Preview Card */}
+            <div className="modal-b" style={{ maxHeight: '68vh', overflowY: 'auto' }}>
               <div className={`thermal-slip-box size-${receiptWidth}`}>
-                {/* CUSTOMER COPY */}
+                {/* 1. CUSTOMER COPY */}
                 {(receiptCopy === 'customer' || receiptCopy === 'both') && (
                   <div>
                     <div className="thermal-slip-header">
-                      <div style={{ fontSize: 16, fontWeight: 800 }}>Byte NCo - {receiptOrder.cartName || user.cartName}</div>
+                      <div style={{ fontSize: 16, fontWeight: 900 }}>Byte NCo - {receiptOrder.cartName || user.cartName}</div>
+                      <div style={{ fontSize: 11, marginTop: 2, color: 'var(--paper-mute)' }}>
+                        {user.city} &bull; Ph: {user.mobile}
+                      </div>
                       <div className="thermal-slip-copy-badge">CUSTOMER COPY</div>
                       <div style={{ marginTop: 6, fontSize: 11 }}>
                         Date: {fmtDateTime(receiptOrder.OrderDate)}
                       </div>
-                      <div style={{ fontWeight: 700, fontSize: 13, marginTop: 2 }}>
-                        Order No: {receiptOrder.OrderNo}
+                      <div style={{ fontWeight: 800, fontSize: 14, marginTop: 2 }}>
+                        Order: {receiptOrder.OrderNo}
                       </div>
                     </div>
 
-                    {/* Line Items */}
+                    {/* Items table */}
                     <div style={{ margin: '8px 0' }}>
                       {(receiptOrder.items || []).map((it, idx) => (
                         <div key={idx} className="thermal-slip-row">
                           <span>{it.Qty} x {it.ProductNameSnapshot}</span>
-                          <span style={{ fontWeight: 600 }}>{fmtPkr(it.SubTotal)}</span>
+                          <span style={{ fontWeight: 700 }}>{fmtPkr(it.SubTotal)}</span>
                         </div>
                       ))}
                     </div>
 
                     <div className="thermal-slip-divider" />
 
-                    <div className="thermal-slip-row" style={{ fontSize: 14, fontWeight: 800 }}>
-                      <span>TOTAL</span>
+                    <div className="thermal-slip-row" style={{ fontSize: 15, fontWeight: 900 }}>
+                      <span>GRAND TOTAL</span>
                       <span>{fmtPkr(receiptOrder.TotalAmount)}</span>
                     </div>
-                    <div className="thermal-slip-row" style={{ fontSize: 11 }}>
-                      <span>Payment:</span>
-                      <span style={{ fontWeight: 600 }}>{receiptOrder.PaymentMethod}</span>
+
+                    <div className="thermal-slip-row" style={{ fontSize: 11.5, marginTop: 4 }}>
+                      <span>Payment Method:</span>
+                      <span style={{ fontWeight: 700 }}>{receiptOrder.PaymentMethod}</span>
                     </div>
 
+                    {receiptOrder.PaymentMethod === 'Cash' && receiptOrder.CashReceived && (
+                      <>
+                        <div className="thermal-slip-row" style={{ fontSize: 11 }}>
+                          <span>Cash Received:</span>
+                          <span>{fmtPkr(receiptOrder.CashReceived)}</span>
+                        </div>
+                        <div className="thermal-slip-row" style={{ fontSize: 11 }}>
+                          <span>Change Returned:</span>
+                          <span style={{ fontWeight: 700 }}>{fmtPkr(receiptOrder.ChangeDue || 0)}</span>
+                        </div>
+                      </>
+                    )}
+
                     <div className="thermal-slip-footer">
-                      <div>Shukriya! Dobara Tashreef Layen</div>
-                      <div style={{ fontSize: 10, marginTop: 4, color: 'var(--paper-mute)' }}>
+                      <div style={{ fontWeight: 700, fontSize: 12 }}>شکریہ! دوبارہ تشریف لائیں</div>
+                      <div style={{ fontSize: 11 }}>Shukriya! Dobara Tashreef Layen</div>
+                      <div style={{ fontSize: 9, marginTop: 6, color: 'var(--paper-mute)' }}>
+                        ||||| |||| |||||| |||| ||||| ||||
+                      </div>
+                      <div style={{ fontSize: 9, marginTop: 2, color: 'var(--paper-mute)' }}>
                         Powered by Byte NCo Simple POS
                       </div>
                     </div>
                   </div>
                 )}
 
-                {/* SHOP COPY */}
+                {/* 2. SHOP COPY */}
                 {(receiptCopy === 'shop' || receiptCopy === 'both') && (
-                  <div style={{ marginTop: receiptCopy === 'both' ? 24 : 0 }}>
+                  <div style={{ marginTop: receiptCopy === 'both' ? 26 : 0 }}>
                     <div className="thermal-slip-header">
-                      <div style={{ fontSize: 16, fontWeight: 800 }}>Byte NCo - {receiptOrder.cartName || user.cartName}</div>
+                      <div style={{ fontSize: 16, fontWeight: 900 }}>Byte NCo - {receiptOrder.cartName || user.cartName}</div>
                       <div className="thermal-slip-copy-badge" style={{ background: '#000', color: '#fff' }}>SHOP COPY</div>
                       <div style={{ marginTop: 6, fontSize: 11 }}>
                         Date: {fmtDateTime(receiptOrder.OrderDate)}
                       </div>
-                      <div style={{ fontWeight: 700, fontSize: 13, marginTop: 2 }}>
-                        Order No: {receiptOrder.OrderNo}
+                      <div style={{ fontWeight: 800, fontSize: 14, marginTop: 2 }}>
+                        Order: {receiptOrder.OrderNo}
                       </div>
                     </div>
 
-                    {/* Line Items */}
                     <div style={{ margin: '8px 0' }}>
                       {(receiptOrder.items || []).map((it, idx) => (
                         <div key={idx} className="thermal-slip-row">
                           <span>{it.Qty} x {it.ProductNameSnapshot}</span>
-                          <span style={{ fontWeight: 600 }}>{fmtPkr(it.SubTotal)}</span>
+                          <span style={{ fontWeight: 700 }}>{fmtPkr(it.SubTotal)}</span>
                         </div>
                       ))}
                     </div>
 
                     <div className="thermal-slip-divider" />
 
-                    <div className="thermal-slip-row" style={{ fontSize: 14, fontWeight: 800 }}>
+                    <div className="thermal-slip-row" style={{ fontSize: 15, fontWeight: 900 }}>
                       <span>TOTAL</span>
                       <span>{fmtPkr(receiptOrder.TotalAmount)}</span>
                     </div>
-                    <div className="thermal-slip-row" style={{ fontSize: 11 }}>
-                      <span>Payment:</span>
-                      <span style={{ fontWeight: 600 }}>{receiptOrder.PaymentMethod}</span>
+
+                    <div className="thermal-slip-row" style={{ fontSize: 11.5 }}>
+                      <span>Method:</span>
+                      <span style={{ fontWeight: 700 }}>{receiptOrder.PaymentMethod}</span>
                     </div>
 
                     <div className="thermal-slip-footer">
-                      <div>INTERNAL SHOP RECORD</div>
+                      <div style={{ fontWeight: 700 }}>INTERNAL SHOP RECORD &bull; KEEP SAFELY</div>
                     </div>
                   </div>
                 )}

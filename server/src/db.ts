@@ -93,6 +93,9 @@ export async function initDb(): Promise<void> {
 
     IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Products_User_Active')
     CREATE INDEX IX_Products_User_Active ON Products (UserID, IsActive);
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Products') AND name = 'Category')
+    ALTER TABLE Products ADD Category NVARCHAR(50) NULL;
   `);
 
   // 4. Orders table
@@ -111,6 +114,12 @@ export async function initDb(): Promise<void> {
 
     IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Orders_User_Date')
     CREATE INDEX IX_Orders_User_Date ON Orders (UserID, OrderDate);
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Orders') AND name = 'CashReceived')
+    ALTER TABLE Orders ADD CashReceived DECIMAL(18,2) NULL;
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Orders') AND name = 'ChangeDue')
+    ALTER TABLE Orders ADD ChangeDue DECIMAL(18,2) NULL;
   `);
 
   // 5. OrderItems table
