@@ -39,13 +39,20 @@ app.get('/api/v1/health', (_req, res) => {
   });
 });
 
-// Mount Byte NCo API v1 Routes
+// Mount Byte NCo API Routes (both /api/v1 and /api for full compatibility)
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/payments', paymentsRouter);
 app.use('/api/v1/admin', adminRouter);
 app.use('/api/v1/products', productsRouter);
 app.use('/api/v1/orders', ordersRouter);
 app.use('/api/v1/dashboard', dashboardRouter);
+
+app.use('/api/auth', authRouter);
+app.use('/api/payments', paymentsRouter);
+app.use('/api/admin', adminRouter);
+app.use('/api/products', productsRouter);
+app.use('/api/orders', ordersRouter);
+app.use('/api/dashboard', dashboardRouter);
 
 // Fallback legacy health for backward compatibility if any
 app.get('/api', (_req, res) => {

@@ -164,6 +164,18 @@ router.post('/login', async (req, res: Response) => {
       return;
     }
 
+    // Master Prompt Rule: If Status != Approved, return error "Waiting for Admin Approval"
+    if (owner.Status !== 'Approved') {
+      res.status(403).json({
+        error: {
+          code: 'WAITING_FOR_ADMIN_APPROVAL',
+          message: 'Waiting for Admin Approval. Please contact Byte NCo administration to activate your cart.',
+          status: owner.Status,
+        },
+      });
+      return;
+    }
+
     const token = generateToken({
       userId: owner.UserID,
       role: 'owner',

@@ -193,6 +193,49 @@ router.post('/checkout', authApprovedOwner, async (req: AuthRequest, res: Respon
   }
 });
 
+// GET /api/orders/today (Today's metrics for owner)
+router.get('/today', authApprovedOwner, async (req: AuthRequest, res: Response) => {
+  try {
+    const p = await getDbPool();
+    const now = new Date();
+    const karachiMs = now.getTime() + 5 * 60 * 60 * 1000;
+    const kd = new Date(karachiMs);
+    const startUtc = new Date(Date.UTC(kd.getUTCFullYear(), kd.getUTCMonth(), kd.getUTCDate(), -5, 0, 0, 0));
+    const endUtc = new Date(Date.UTC(kd.getUTCFullYear(), kd.getUTCMonth(), kd.getUTCDate() + 1, -5, 0, 0, 0));
+
+    const result = await p.request()
+      .input('uid', sql.Int, req.user?.userId)
+      .input('start', sql.DateTime2, startUtc)
+      .input('end', sql.DateTime2, endUtc)
+      .query(`
+        SELECT 
+          ISNULL(SUM(TotalAmount), 0) as totalSales,
+          COUNT(*) as orderCount,
+          ISNULL(SUM(CASE WHEN PaymentMethod = 'Cash' THEN TotalAmount ELSE 0 END), 0) as cashSales,
+          ISNULL(SUM(CASE WHEN PaymentMethod = 'JazzCash' THEN TotalAmount ELSE 0 END), 0) as jazzCashSales,
+          ISNULL(SUM(CASE WHEN PaymentMethod = 'EasyPaisa' THEN TotalAmount ELSE 0 END), 0) as easyPaisaSales
+        FROM Orders
+        WHERE UserID = @uid 
+          AND OrderStatus = 'Completed'
+          AND OrderDate >= @start 
+          AND OrderDate < @end
+      `);
+
+    const row = result.recordset[0] || {};
+    res.json({
+      currency: 'PKR',
+      todayTotalSales: Number(row.totalSales || 0),
+      todayOrdersCount: Number(row.orderCount || 0),
+      todayCashSales: Number(row.cashSales || 0),
+      todayJazzCashSales: Number(row.jazzCashSales || 0),
+      todayEasyPaisaSales: Number(row.easyPaisaSales || 0),
+    });
+  } catch (err: any) {
+    console.error('[ORDERS_TODAY_ERR]', err);
+    res.status(500).json({ error: { code: 'SERVER_ERROR', message: 'Failed to fetch today sales.' } });
+  }
+});
+
 // GET /api/v1/orders (Order history for owner)
 router.get('/', authApprovedOwner, async (req: AuthRequest, res: Response) => {
   try {

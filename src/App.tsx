@@ -995,16 +995,62 @@ export default function App() {
                           <div className="fine">{fmtPkr(o.TotalSales || 0)}</div>
                         </td>
                         <td>
-                          <button
-                            className="btn sm"
-                            onClick={() => {
-                              setAdminSelectedOwner(o);
-                              setAdminRejectReason('');
-                              setAdminBlockReason('');
-                            }}
-                          >
-                            Review
-                          </button>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {o.Status === 'Pending' && (
+                              <>
+                                <button
+                                  className="btn success sm"
+                                  disabled={adminActionLoading}
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    setAdminActionLoading(true);
+                                    try {
+                                      await api.approveOwner(o.UserID);
+                                      showToast(`Owner "${o.OwnerName}" approved! POS unlocked.`);
+                                      fetchAdminData();
+                                    } catch (err: any) {
+                                      showToast(err.message || 'Approval failed.');
+                                    } finally {
+                                      setAdminActionLoading(false);
+                                    }
+                                  }}
+                                >
+                                  ✓ Approve
+                                </button>
+                                <button
+                                  className="btn danger sm"
+                                  disabled={adminActionLoading}
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    const reason = prompt('Enter rejection reason:', 'Application rejected');
+                                    if (reason === null) return;
+                                    setAdminActionLoading(true);
+                                    try {
+                                      await api.rejectOwner(o.UserID, reason);
+                                      showToast('Owner rejected.');
+                                      fetchAdminData();
+                                    } catch (err: any) {
+                                      showToast(err.message || 'Rejection failed.');
+                                    } finally {
+                                      setAdminActionLoading(false);
+                                    }
+                                  }}
+                                >
+                                  Reject
+                                </button>
+                              </>
+                            )}
+                            <button
+                              className="btn sm"
+                              onClick={() => {
+                                setAdminSelectedOwner(o);
+                                setAdminRejectReason('');
+                                setAdminBlockReason('');
+                              }}
+                            >
+                              Review
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -1112,17 +1158,17 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Approve Button */}
-                {adminSelectedOwner.LastPaymentID && adminSelectedOwner.Status !== 'Approved' && (
+                {/* Direct Approve Button */}
+                {adminSelectedOwner.Status !== 'Approved' && (
                   <div style={{ marginBottom: 14 }}>
                     <button
-                      className="btn primary wide"
+                      className="btn success wide"
                       disabled={adminActionLoading}
                       onClick={async () => {
                         setAdminActionLoading(true);
                         try {
-                          await api.approvePayment(adminSelectedOwner.LastPaymentID);
-                          showToast('Owner approved successfully!');
+                          await api.approveOwner(adminSelectedOwner.UserID);
+                          showToast(`Owner "${adminSelectedOwner.OwnerName}" approved! POS unlocked.`);
                           setAdminSelectedOwner(null);
                           fetchAdminData();
                         } catch (err: any) {
@@ -1132,30 +1178,30 @@ export default function App() {
                         }
                       }}
                     >
-                      ✓ Approve Payment & Activate Cart Owner
+                      ✓ Approve Owner & Unlock POS Access
                     </button>
                   </div>
                 )}
 
-                {/* Reject Section */}
-                {adminSelectedOwner.LastPaymentID && adminSelectedOwner.Status === 'Pending' && (
+                {/* Direct Reject Section */}
+                {adminSelectedOwner.Status === 'Pending' && (
                   <div style={{ marginBottom: 16, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
                     <label className="label">Rejection Reason</label>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <input
                         className="input sm"
-                        placeholder="e.g. Deposit unverified / Invalid TID"
+                        placeholder="e.g. Incomplete details or unverified"
                         value={adminRejectReason}
                         onChange={e => setAdminRejectReason(e.target.value)}
                       />
                       <button
                         className="btn danger sm"
-                        disabled={!adminRejectReason.trim() || adminActionLoading}
+                        disabled={adminActionLoading}
                         onClick={async () => {
                           setAdminActionLoading(true);
                           try {
-                            await api.rejectPayment(adminSelectedOwner.LastPaymentID, adminRejectReason.trim());
-                            showToast('Payment rejected.');
+                            await api.rejectOwner(adminSelectedOwner.UserID, adminRejectReason.trim() || 'Rejected by Admin');
+                            showToast('Owner rejected.');
                             setAdminSelectedOwner(null);
                             fetchAdminData();
                           } catch (err: any) {
@@ -1333,9 +1379,32 @@ export default function App() {
         {/* ==================== TAB 1: POS REGISTER ==================== */}
         {activeTab === 'pos' && (
           <div className="page" style={{ height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
+            {/* Mobile Tab Switcher */}
+            <div className="pos-mobile-tabs" style={{ display: 'none', gap: 8, marginBottom: 12 }}>
+              <button
+                type="button"
+                className={`btn sm ${mobilePosTab === 'menu' ? 'primary' : 'ghost'}`}
+                style={{ flex: 1 }}
+                onClick={() => setMobilePosTab('menu')}
+              >
+                Products ({filteredProducts.length})
+              </button>
+              <button
+                type="button"
+                className={`btn sm ${mobilePosTab === 'cart' ? 'primary' : 'ghost'}`}
+                style={{ flex: 1 }}
+                onClick={() => setMobilePosTab('cart')}
+              >
+                Cart ({cartItemCount}) &bull; {fmtPkr(cartTotal)}
+              </button>
+            </div>
+
             <div className="two">
               {/* Left Column: Product Selection Grid */}
-              <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+              <div
+                className={mobilePosTab === 'cart' ? 'hide-on-mobile' : ''}
+                style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}
+              >
                 {/* Search & Categories */}
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
@@ -1413,7 +1482,10 @@ export default function App() {
               </div>
 
               {/* Right Column: Tactile Cart & Tender Drawer */}
-              <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--surface)', borderRadius: 'var(--r-lg)', border: '1px solid var(--line)', overflow: 'hidden' }}>
+              <div
+                className={mobilePosTab === 'menu' ? 'hide-on-mobile' : ''}
+                style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--surface)', borderRadius: 'var(--r-lg)', border: '1px solid var(--line)', overflow: 'hidden' }}
+              >
                 <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface-2)' }}>
                   <h3 style={{ margin: 0, fontSize: 16 }}>Current Bill</h3>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1573,6 +1645,20 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            {/* Floating Mobile Cart Trigger */}
+            {cartItemCount > 0 && mobilePosTab === 'menu' && (
+              <div className="pos-mobile-cart-float">
+                <button
+                  type="button"
+                  className="btn primary wide"
+                  onClick={() => setMobilePosTab('cart')}
+                  style={{ boxShadow: '0 8px 24px rgba(0,0,0,0.3)', height: 48, fontWeight: 700 }}
+                >
+                  🛒 View Cart ({cartItemCount}) &bull; {fmtPkr(cartTotal)} &rarr;
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1752,9 +1838,33 @@ export default function App() {
                 <h2>Order History & Receipts</h2>
                 <p className="fine">Reprint customer or shop thermal slips</p>
               </div>
-              <button className="btn ghost sm" onClick={() => api.getOrders().then(setOrders)}>
+              <button className="btn ghost sm" onClick={() => {
+                api.getOrders().then(setOrders);
+                api.getTodayMetrics().then(setMetrics);
+              }}>
                 Refresh History
               </button>
+            </div>
+
+            {/* Today's Live Sales Overview */}
+            <div className="kpis" style={{ marginBottom: 20 }}>
+              <div className="kpi">
+                <span className="kpi-l">Today's Sales</span>
+                <span className="kpi-v">{fmtPkr(metrics?.todayTotalSales || 0)}</span>
+                <span className="fine">{metrics?.todayOrdersCount || 0} completed orders today</span>
+              </div>
+              <div className="kpi">
+                <span className="kpi-l">Cash Collected</span>
+                <span className="kpi-v">{fmtPkr(metrics?.todayCashSales || 0)}</span>
+                <span className="fine">Physical cash in drawer</span>
+              </div>
+              <div className="kpi">
+                <span className="kpi-l">Digital Wallets</span>
+                <span className="kpi-v">
+                  {fmtPkr((metrics?.todayJazzCashSales || 0) + (metrics?.todayEasyPaisaSales || 0))}
+                </span>
+                <span className="fine">JazzCash + EasyPaisa</span>
+              </div>
             </div>
 
             {/* Filter and Search */}

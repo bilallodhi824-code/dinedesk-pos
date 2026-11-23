@@ -124,6 +124,76 @@ router.get('/owners/:id', authAdmin, async (req: AuthRequest, res: Response) => 
   }
 });
 
+// PUT /api/admin/approve/:id (Master Prompt: direct owner approval)
+router.put('/approve/:id', authAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = parseInt(req.params.id, 10);
+    const adminId = req.user?.userId;
+    const p = await getDbPool();
+
+    await p.request()
+      .input('uid', sql.Int, ownerId)
+      .query(`
+        UPDATE Users 
+        SET Status = 'Approved', UpdatedAt = SYSUTCDATETIME()
+        WHERE UserID = @uid;
+
+        UPDATE Payments 
+        SET Status = 'Approved', ReviewedAt = SYSUTCDATETIME()
+        WHERE UserID = @uid AND Status = 'Pending';
+      `);
+
+    await p.request()
+      .input('aid', sql.Int, adminId)
+      .input('uid', sql.Int, ownerId)
+      .query(`
+        INSERT INTO Admin_Audit_Logs (AdminID, TargetUserID, Action, Details)
+        VALUES (@aid, @uid, 'OWNER_APPROVED', 'Admin approved cart owner account.');
+      `);
+
+    res.json({ message: 'Owner approved successfully.' });
+  } catch (err: any) {
+    console.error('[ADMIN_APPROVE_ERR]', err);
+    res.status(500).json({ error: { code: 'SERVER_ERROR', message: 'Failed to approve owner.' } });
+  }
+});
+
+// PUT /api/admin/reject/:id (Master Prompt: direct owner rejection)
+router.put('/reject/:id', authAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const ownerId = parseInt(req.params.id, 10);
+    const { reason } = req.body;
+    const adminId = req.user?.userId;
+    const p = await getDbPool();
+
+    await p.request()
+      .input('uid', sql.Int, ownerId)
+      .query(`
+        UPDATE Users 
+        SET Status = 'Rejected', UpdatedAt = SYSUTCDATETIME()
+        WHERE UserID = @uid;
+
+        UPDATE Payments 
+        SET Status = 'Rejected', RejectionReason = @reason, ReviewedAt = SYSUTCDATETIME()
+        WHERE UserID = @uid AND Status = 'Pending';
+      `);
+
+    await p.request()
+      .input('aid', sql.Int, adminId)
+      .input('uid', sql.Int, ownerId)
+      .input('reason', sql.NVarChar, reason || 'Rejected by Admin')
+      .query(`
+        INSERT INTO Admin_Audit_Logs (AdminID, TargetUserID, Action, Reason, Details)
+        VALUES (@aid, @uid, 'OWNER_REJECTED', @reason, 'Admin rejected cart owner account.');
+      `);
+
+    res.json({ message: 'Owner rejected successfully.' });
+  } catch (err: any) {
+    console.error('[ADMIN_REJECT_ERR]', err);
+    res.status(500).json({ error: { code: 'SERVER_ERROR', message: 'Failed to reject owner.' } });
+  }
+});
+
 // POST /api/v1/admin/payments/:id/approve (Approves payment and activates owner)
 router.post('/payments/:id/approve', authAdmin, async (req: AuthRequest, res: Response) => {
   try {

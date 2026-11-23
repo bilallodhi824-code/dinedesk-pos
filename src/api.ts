@@ -202,6 +202,10 @@ export const api = {
     if (!found) throw new Error('No registered account found with this mobile number.');
     if (found.password !== password) throw new Error('Invalid mobile or password.');
 
+    if (found.status !== 'Approved') {
+      throw new Error('Waiting for Admin Approval. Your cart account is pending verification.');
+    }
+
     const token = 'header.' + btoa(JSON.stringify({ userId: found.userId, role: 'owner' })) + '.sig';
     setStoredToken(token);
     return { token, user: found };
@@ -729,6 +733,50 @@ export const api = {
         LastPaymentProof: lastPay?.PaymentProofUrl,
       };
     });
+  },
+
+  async approveOwner(ownerId: number): Promise<void> {
+    const token = getStoredToken();
+    try {
+      const res = await fetch(`${API_BASE}/admin/approve/${ownerId}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const ct = res.headers.get('content-type') || '';
+      if (res.ok && ct.includes('application/json')) return;
+    } catch {}
+
+    // Standalone fallback
+    const users = getLs<any[]>(LS_USERS, []);
+    const u = users.find(x => x.userId === ownerId);
+    if (u) {
+      u.status = 'Approved';
+      setLs(LS_USERS, users);
+    }
+  },
+
+  async rejectOwner(ownerId: number, reason?: string): Promise<void> {
+    const token = getStoredToken();
+    try {
+      const res = await fetch(`${API_BASE}/admin/reject/${ownerId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ reason: reason || 'Rejected by Admin' }),
+      });
+      const ct = res.headers.get('content-type') || '';
+      if (res.ok && ct.includes('application/json')) return;
+    } catch {}
+
+    // Standalone fallback
+    const users = getLs<any[]>(LS_USERS, []);
+    const u = users.find(x => x.userId === ownerId);
+    if (u) {
+      u.status = 'Rejected';
+      setLs(LS_USERS, users);
+    }
   },
 
   async approvePayment(paymentId: number): Promise<void> {
